@@ -160,3 +160,113 @@ class EventMemberRecord(BaseModel):
     user_id: str
     role: EventRole
     joined_at: datetime
+
+
+class PhotoResponse(BaseModel):
+    """Gallery photo payload."""
+
+    id: str
+    cloudinary_url: str = Field(alias="cloudinaryUrl")
+    thumbnail_url: str | None = Field(default=None, alias="thumbnailUrl")
+    uploaded_at: datetime = Field(alias="uploadedAt")
+    face_count: int = Field(alias="faceCount")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class MatchedPhotoResponse(PhotoResponse):
+    """Matched photo payload for user-scoped galleries."""
+
+    matched_at: datetime | None = Field(default=None, alias="matchedAt")
+    similarity_score: float | None = Field(default=None, alias="similarityScore")
+
+
+class AllPhotosResponse(BaseModel):
+    """Full event gallery response."""
+
+    photos: list[PhotoResponse]
+
+
+class MyPhotosResponse(BaseModel):
+    """Current-user matched gallery response."""
+
+    photos: list[MatchedPhotoResponse]
+    download_all_url: str | None = Field(default=None, alias="downloadAllUrl")
+    has_face_profile: bool = Field(alias="hasFaceProfile")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SharedGalleryEventResponse(BaseModel):
+    """Public shared gallery event summary."""
+
+    id: str
+    name: str
+    date: date
+
+
+class SharedGalleryOwnerResponse(BaseModel):
+    """Public shared gallery owner summary."""
+
+    id: str
+    name: str
+    avatar_url: str | None = Field(default=None, alias="avatarUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GalleryResponse(BaseModel):
+    """Public tokenized gallery response."""
+
+    event: SharedGalleryEventResponse
+    shared_by: SharedGalleryOwnerResponse = Field(alias="sharedBy")
+    photos: list[MatchedPhotoResponse]
+    download_all_url: str | None = Field(default=None, alias="downloadAllUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GalleryTokenCreateRequest(BaseModel):
+    """Create or reuse a share token scoped to one user and one event."""
+
+    event_id: str = Field(alias="eventId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ShareGalleryTokenResponse(BaseModel):
+    """Share-token creation response."""
+
+    token: str
+    url: str
+
+
+class GalleryTokenRecord(BaseModel):
+    """Normalized `gallery_tokens` row."""
+
+    token: str
+    user_id: str
+    event_id: str
+    created_at: datetime | None = None
+
+
+class PhotoRecord(BaseModel):
+    """Normalized `photos` row."""
+
+    id: str
+    event_id: str
+    cloudinary_url: str | None = None
+    thumbnail_url: str | None = None
+    uploaded_at: datetime
+    face_count: int
+
+
+class UserPhotoMatchRecord(BaseModel):
+    """Normalized `user_photo_matches` row."""
+
+    id: str | None = None
+    user_id: str
+    photo_id: str
+    event_id: str
+    similarity_score: float | None = None
+    matched_at: datetime | None = None
