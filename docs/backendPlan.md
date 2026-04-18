@@ -185,9 +185,9 @@ Implement the product’s automatic photo matching behavior.
 
 ### Locked Workflow
 
-- Read user `rekognition_face_id`
+- Read the user's current enrollment selfie set from private storage
 - Read event collection ID
-- Search Rekognition collection
+- Search Rekognition collection with each enrollment selfie
 - Map Rekognition face IDs through `face_index`
 - Insert deduplicated `user_photo_matches`
 - Notify frontend of updated `My Photos`

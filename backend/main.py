@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import getSettings
 from backend.errors import register_error_handlers
 from backend.logging import configure_logging, log_requests
+from backend.routes.account import router as account_router
 from backend.routes.health import router as health_router
 from backend.routes.runtime_config import router as config_router
 from backend.routes.verification import router as verification_router
@@ -41,6 +42,7 @@ register_error_handlers(app)
 app.include_router(health_router)
 app.include_router(config_router)
 app.include_router(verification_router)
+app.include_router(account_router)
 
 
 # --- Local entrypoint -----------------------------------------------------

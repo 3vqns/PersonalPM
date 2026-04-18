@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # Supabase
     supabase_url: str = Field(min_length=1)
     supabase_service_role_key: SecretStr
+    face_profile_bucket: str = "face-profile-images"
 
     # Internal
     internal_api_secret: SecretStr

@@ -133,8 +133,8 @@
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/api/auth/face-profile` | User | Upload 3–5 enrollment selfies and update face profile state |
-| DELETE | `/api/auth/face-profile` | User | Remove face profile and clear related match rows |
+| POST | `/api/account/face-profile` | User | Upload 3–5 enrollment selfies and update face profile state |
+| DELETE | `/api/account/face-profile` | User | Remove face profile and clear related match rows |
 | POST | `/api/events` | User | Create event + Rekognition collection |
 | GET | `/api/events/{id}` | Member | Get event details + photo counts |
 | GET | `/api/events/join/{token}` | Public | Get limited event preview by join token |
