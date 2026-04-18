@@ -87,3 +87,14 @@ async def require_authenticated_user(
     )
     request.state.current_user = current_user
     return current_user
+
+
+async def get_optional_authenticated_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> AuthenticatedUser | None:
+    """Return the authenticated user when a bearer token is present."""
+    if credentials is None:
+        return None
+
+    return await require_authenticated_user(request, credentials)

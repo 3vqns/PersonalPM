@@ -30,7 +30,7 @@ _MAX_ENROLLMENT_SELFIES = 5
 
 def get_account(current_user: AuthenticatedUser) -> AccountResponse:
     """Fetch or provision the current user's account row."""
-    user_record = _ensure_public_user(current_user)
+    user_record = get_public_user_record(current_user)
     return _build_account_response(user_record)
 
 
@@ -128,7 +128,7 @@ def _build_account_response(user_record: PublicUserRecord) -> AccountResponse:
     )
 
 
-def _ensure_public_user(current_user: AuthenticatedUser) -> PublicUserRecord:
+def get_public_user_record(current_user: AuthenticatedUser) -> PublicUserRecord:
     """Fetch the current public user row, creating it from auth data if missing."""
     client = get_supabase_admin_client()
 

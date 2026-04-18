@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     supabase_service_role_key: SecretStr
     face_profile_bucket: str = "face-profile-images"
 
+    # AWS
+    aws_region: str = "us-east-1"
+    rekognition_collection_prefix: str = "pictureme-event"
+
     # Internal
     internal_api_secret: SecretStr
 
