@@ -32,7 +32,7 @@ const steps = [
     icon: Sparkles,
     title: "Your Photos Find You",
     description:
-      "Check 'My Photos' to see every photo you appear in. Download them individually or grab everything as a ZIP.",
+      "Check 'My Photos' to see every photo you appear in. Download the ones you want in a single tap.",
     color: "from-primary to-accent",
   },
 ];

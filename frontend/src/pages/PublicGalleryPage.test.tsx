@@ -32,7 +32,6 @@ describe("PublicGalleryPage", () => {
           similarityScore: 98,
         },
       ],
-      downloadAllUrl: "https://example.com/download-all.zip",
     });
 
     render(

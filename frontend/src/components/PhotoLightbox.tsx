@@ -6,6 +6,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { buildPhotoDownloadName, downloadFile } from "../lib/download";
 import type { Photo } from "../types";
 
 interface PhotoLightboxProps {
@@ -21,6 +22,7 @@ export function PhotoLightbox({
 }: PhotoLightboxProps) {
   const [index, setIndex] = useState(initialIndex);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const currentPhoto = photos[index];
 
   useEffect(() => {
@@ -54,6 +56,18 @@ export function PhotoLightbox({
     window.setTimeout(() => setCopied(false), 1500);
   }
 
+  async function handleDownload() {
+    try {
+      setDownloading(true);
+      await downloadFile(
+        currentPhoto.cloudinaryUrl,
+        buildPhotoDownloadName(currentPhoto.id, currentPhoto.originalFilename),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-ink/95 p-4 text-white">
       <div className="flex items-center justify-between">
@@ -74,16 +88,15 @@ export function PhotoLightbox({
             <LinkIcon className="mr-2 h-4 w-4" />
             {copied ? "Copied" : "Share"}
           </button>
-          <a
+          <button
+            type="button"
             className="secondary-button border-white/20 bg-white/10 text-white"
-            href={currentPhoto.cloudinaryUrl}
-            download
-            target="_blank"
-            rel="noreferrer"
+            onClick={() => void handleDownload()}
+            disabled={downloading}
           >
             <Download className="mr-2 h-4 w-4" />
-            Download
-          </a>
+            {downloading ? "Downloading..." : "Download"}
+          </button>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Download, Image as ImageIcon, Share2, User } from "lucide-react";
+import { Image as ImageIcon, Share2, User } from "lucide-react";
 import { useState } from "react";
 import { useScrollAnimation } from "./useScrollAnimation";
 
@@ -63,13 +63,6 @@ export function LandingGalleryPreview() {
                   >
                     <Share2 className="h-4 w-4" />
                     Share
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download All
                   </button>
                 </div>
               </div>

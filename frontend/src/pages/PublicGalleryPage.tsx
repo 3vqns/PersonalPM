@@ -1,4 +1,4 @@
-import { AlertCircle, Images, Link as LinkIcon } from "lucide-react";
+import { AlertCircle, Images } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
@@ -80,18 +80,6 @@ export function PublicGalleryPage() {
             {formatDate(gallery.event.date)} • Shared by {gallery.sharedBy.name}
           </p>
         </div>
-
-        {gallery.downloadAllUrl ? (
-          <a
-            className="primary-button"
-            href={gallery.downloadAllUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <LinkIcon className="mr-2 h-4 w-4" />
-            Download all
-          </a>
-        ) : null}
 
         {gallery.photos.length ? (
           <PhotoGrid

@@ -23,9 +23,9 @@ const features = [
   },
   {
     icon: Download,
-    title: "Easy Downloads",
+    title: "Easy Photo Downloads",
     description:
-      "Download individual photos or grab all your matched photos as a ZIP. Share with family in one click.",
+      "Download individual photos in one tap and share your gallery link with family in one click.",
   },
   {
     icon: Shield,
