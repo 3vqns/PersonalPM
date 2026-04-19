@@ -30,6 +30,9 @@ from backend.schemas.event import (
     EventSummaryResponse,
     EventUpdateRequest,
     JoinPreviewResponse,
+    PhotoResponse,
+    PhotoRecord,
+    PublicEventGalleryResponse,
 )
 from backend.services.account_service import get_public_user_record
 from backend.services.cloudinary_service import upload_event_cover
@@ -285,6 +288,17 @@ def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) 
     )
 
 
+def get_public_event_gallery(token: str, current_user: AuthenticatedUser | None = None) -> PublicEventGalleryResponse:
+    """Return the public event gallery for an invite token."""
+    preview = get_join_preview(token, current_user=current_user)
+    event = _get_event_by_join_token(token)
+    photo_records = _list_public_event_photos(event.id)
+    return PublicEventGalleryResponse(
+        event=preview,
+        photos=[_map_public_photo(photo) for photo in photo_records],
+    )
+
+
 def join_event(
     current_user: AuthenticatedUser,
     *,
@@ -393,6 +407,55 @@ def _map_account_user(user: PublicUserRecord) -> AccountUserResponse:
         avatarUrl=user.avatar_url,
         hasFaceProfile=user.has_face_profile,
         faceIndexedAt=user.face_indexed_at,
+    )
+
+
+def _list_public_event_photos(event_id: str) -> list[PhotoRecord]:
+    client = get_supabase_admin_client()
+    try:
+        response = client.table("photos").select(
+            "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
+        ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
+    except Exception as exc:
+        if not _is_missing_original_filename_column(exc):
+            raise AppError("PictureMe could not load this public gallery", code="GALLERY_FETCH_FAILED", status=500) from exc
+
+        try:
+            response = client.table("photos").select(
+                "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+            ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
+        except Exception as retry_exc:
+            raise AppError("PictureMe could not load this public gallery", code="GALLERY_FETCH_FAILED", status=500) from retry_exc
+
+    return [
+        _normalize_photo(row)
+        for row in (response.data or [])
+        if row.get("cloudinary_url")
+    ]
+
+
+def _normalize_photo(row: dict) -> PhotoRecord:
+    face_count = row.get("face_count")
+    if face_count is None:
+        row = {**row, "face_count": 0}
+    return PhotoRecord.model_validate(row)
+
+
+def _map_public_photo(photo: PhotoRecord) -> PhotoResponse:
+    return PhotoResponse(
+        id=photo.id,
+        cloudinaryUrl=photo.cloudinary_url,
+        thumbnailUrl=photo.thumbnail_url,
+        originalFilename=photo.original_filename,
+        uploadedAt=photo.uploaded_at,
+        faceCount=photo.face_count,
+    )
+
+
+def _is_missing_original_filename_column(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return "original_filename" in message and (
+        "column" in message or "schema cache" in message or "pgrst" in message
     )
 
 

@@ -34,6 +34,59 @@ const mockedSignIn = vi.mocked(supabase.auth.signInWithPassword);
 const mockedGoogleSignIn = vi.mocked(signInWithGoogleOAuth);
 
 describe("JoinEventPage", () => {
+  it("shows a public event gallery to anonymous visitors", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: null,
+      user: null,
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token/gallery") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Demo Event",
+            date: "2026-06-21",
+            hostName: "Avery",
+            photoCount: 42,
+            memberCount: 9,
+            status: "active",
+            expiresAt: "2026-07-21",
+            joinToken: "demo-token",
+          },
+          photos: [
+            {
+              id: "photo-1",
+              cloudinaryUrl: "https://example.com/photo.jpg",
+              thumbnailUrl: "https://example.com/photo-thumb.jpg",
+              uploadedAt: "2026-06-21T00:00:00Z",
+              faceCount: 1,
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/join/demo-token"]}>
+        <Routes>
+          <Route path="/join/:token" element={<JoinEventPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Demo Event")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /join with google/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Or with email")).not.toBeInTheDocument();
+  });
+
   it("auto-joins the event when an authenticated user opens the invite link", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,

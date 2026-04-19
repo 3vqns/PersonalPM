@@ -110,6 +110,8 @@ class JoinPreviewResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+
+
 class EventMemberResponse(BaseModel):
     """Event member list row."""
 
@@ -208,6 +210,13 @@ class MyPhotosResponse(BaseModel):
     has_face_profile: bool = Field(alias="hasFaceProfile")
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class PublicEventGalleryResponse(BaseModel):
+    """Public gallery payload resolved from an event join token."""
+
+    event: JoinPreviewResponse
+    photos: list[PhotoResponse]
 
 
 class SharedGalleryEventResponse(BaseModel):

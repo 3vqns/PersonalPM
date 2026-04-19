@@ -13,6 +13,7 @@ from backend.schemas.event import (
     EventMemberRoleUpdateRequest,
     EventUpdateRequest,
     JoinPreviewResponse,
+    PublicEventGalleryResponse,
 )
 from backend.schemas.upload import UploadJobStartResponse
 from backend.services.event_service import (
@@ -21,6 +22,7 @@ from backend.services.event_service import (
     get_dashboard,
     get_event_detail,
     get_join_preview,
+    get_public_event_gallery,
     join_event,
     list_event_members,
     update_event,
@@ -67,6 +69,15 @@ async def get_event_join_preview(
 ) -> JoinPreviewResponse:
     """Return a public-safe event join preview."""
     return get_join_preview(token, current_user=current_user)
+
+
+@router.get("/api/events/join/{token}/gallery", response_model=PublicEventGalleryResponse)
+async def get_event_public_gallery(
+    token: str,
+    current_user: AuthenticatedUser | None = Depends(get_optional_authenticated_user),
+) -> PublicEventGalleryResponse:
+    """Return the public event gallery for an invite token."""
+    return get_public_event_gallery(token, current_user=current_user)
 
 
 @router.post("/api/events/{event_id}/join", response_model=EventJoinResponse)

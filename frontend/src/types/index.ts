@@ -72,6 +72,11 @@ export interface JoinPreview {
   alreadyJoined?: boolean;
 }
 
+export interface PublicEventGalleryResponse {
+  event: JoinPreview;
+  photos: Photo[];
+}
+
 export interface Photo {
   id: string;
   cloudinaryUrl: string;

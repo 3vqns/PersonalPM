@@ -12,7 +12,7 @@ from starlette.datastructures import Headers
 
 from backend.dependencies.auth import AuthenticatedUser
 from backend.schemas.account import PublicUserRecord
-from backend.schemas.event import EventRecord
+from backend.schemas.event import EventRecord, PhotoRecord
 from backend.services import event_service
 
 
@@ -275,3 +275,53 @@ def test_get_membership_returns_none_when_no_membership_row(monkeypatch) -> None
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _NoMembershipClient())
 
     assert event_service._get_membership("event-1", "user-1") is None
+
+
+def test_get_public_event_gallery_returns_join_preview_and_photos(monkeypatch) -> None:
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        expires_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+
+    monkeypatch.setattr(event_service, "_get_event_by_join_token", lambda _token: event)
+    monkeypatch.setattr(
+        event_service,
+        "_get_public_user_by_id",
+        lambda _user_id: PublicUserRecord(
+            id="creator-1",
+            email="creator@example.com",
+            name="Taylor",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(event_service, "_count_rows", lambda _table, _filters: 3)
+    monkeypatch.setattr(
+        event_service,
+        "_list_public_event_photos",
+        lambda _event_id: [
+            PhotoRecord(
+                id="photo-1",
+                event_id="event-1",
+                cloudinary_url="https://example.com/photo.jpg",
+                thumbnail_url="https://example.com/photo-thumb.jpg",
+                uploaded_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+                face_count=1,
+            )
+        ],
+    )
+
+    response = event_service.get_public_event_gallery("join-token")
+
+    assert response.event.join_token == "join-token"
+    assert [photo.id for photo in response.photos] == ["photo-1"]

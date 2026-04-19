@@ -67,10 +67,6 @@ describe("EventGalleryPage", () => {
         };
       }
 
-      if (path === "/api/gallery-tokens") {
-        return { token: "gallery-token", url: "https://example.com/gallery/gallery-token" };
-      }
-
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -93,7 +89,7 @@ describe("EventGalleryPage", () => {
     expect(supabase.channel).toHaveBeenCalled();
   });
 
-  it("shows a public gallery share panel for my photos", async () => {
+  it("shows the invite-link share panel for my photos", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -151,10 +147,6 @@ describe("EventGalleryPage", () => {
         };
       }
 
-      if (path === "/api/gallery-tokens") {
-        return { token: "gallery-token", url: "https://example.com/gallery/gallery-token" };
-      }
-
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -169,6 +161,6 @@ describe("EventGalleryPage", () => {
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
     expect(await screen.findByText("Share these photos instantly")).toBeInTheDocument();
     expect(screen.getByText("Gallery link")).toBeInTheDocument();
-    expect(screen.getByText("https://example.com/gallery/gallery-token")).toBeInTheDocument();
+    expect(screen.getByText("http://localhost/join/join-token")).toBeInTheDocument();
   });
 });

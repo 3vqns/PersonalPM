@@ -1,16 +1,19 @@
 import { AlertCircle, ArrowRight, CalendarDays, Images, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { EmptyState } from "../components/EmptyState";
 import { FaceScanCapture } from "../components/FaceScanCapture";
 import { GoogleAuthButton } from "../components/GoogleAuthButton";
 import { InlineAuthPanel } from "../components/InlineAuthPanel";
+import { PhotoGrid } from "../components/PhotoGrid";
+import { PhotoLightbox } from "../components/PhotoLightbox";
 import { Spinner } from "../components/Spinner";
 import { useAuth } from "../hooks/useAuth";
 import { apiFetch } from "../lib/api";
 import { formatDate, formatLongDate } from "../lib/date";
 import { submitFaceScan } from "../lib/faceScan";
 import { supabase } from "../lib/supabase";
-import type { JoinPreview } from "../types";
+import type { JoinPreview, PublicEventGalleryResponse } from "../types";
 
 export function JoinEventPage() {
   const { token = "" } = useParams();
@@ -18,6 +21,7 @@ export function JoinEventPage() {
   const { session, loading: authLoading, refreshSession } = useAuth();
   const autoJoinAttemptedRef = useRef(false);
   const [preview, setPreview] = useState<JoinPreview | null>(null);
+  const [publicGallery, setPublicGallery] = useState<PublicEventGalleryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"signup" | "login">("signup");
   const [phase, setPhase] = useState<"auth" | "face">("auth");
@@ -32,6 +36,7 @@ export function JoinEventPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   useEffect(() => {
     autoJoinAttemptedRef.current = false;
@@ -41,10 +46,19 @@ export function JoinEventPage() {
     async function loadPreview() {
       setLoading(true);
       try {
-        const response = await apiFetch<JoinPreview>(`/api/events/join/${token}`, {
-          auth: "optional",
-        });
-        setPreview(response);
+        if (session) {
+          const response = await apiFetch<JoinPreview>(`/api/events/join/${token}`, {
+            auth: "optional",
+          });
+          setPreview(response);
+          setPublicGallery(null);
+        } else {
+          const response = await apiFetch<PublicEventGalleryResponse>(`/api/events/join/${token}/gallery`, {
+            auth: false,
+          });
+          setPreview(response.event);
+          setPublicGallery(response);
+        }
         setError(null);
       } catch (requestError) {
         setError(
@@ -206,6 +220,14 @@ export function JoinEventPage() {
 
   return (
     <div className="page-shell space-y-6">
+      {!session && publicGallery && lightboxIndex !== null ? (
+        <PhotoLightbox
+          photos={publicGallery.photos}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      ) : null}
+
       <section className="surface-card overflow-hidden p-0">
         <div className="grid gap-0 lg:grid-cols-[1.1fr,0.9fr]">
           <div className="min-h-72 bg-soft-radial">
@@ -248,6 +270,19 @@ export function JoinEventPage() {
               <div className="rounded-3xl bg-amber-50 px-4 py-3 text-sm text-amber-600">
                 This gallery has expired and can no longer accept new members.
               </div>
+            ) : !session && publicGallery ? (
+              publicGallery.photos.length ? (
+                <PhotoGrid
+                  photos={publicGallery.photos}
+                  onSelect={(index) => setLightboxIndex(index)}
+                />
+              ) : (
+                <EmptyState
+                  icon={<Images className="h-7 w-7" />}
+                  title="No photos uploaded yet"
+                  description="This public gallery is live, but there are no event photos available right now."
+                />
+              )
             ) : phase === "face" ? (
               <FaceScanCapture
                 onCapture={handleFaceCapture}
