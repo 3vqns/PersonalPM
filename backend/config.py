@@ -20,10 +20,10 @@ class Settings(BaseSettings):
     port: int = 8000
     node_env: Literal["development", "test", "production"] = "development"
     app_origin: str = Field(
-        default="http://localhost:3000",
+        default="http://personal-pm-frontend-one.vercel.app",
         validation_alias=AliasChoices("APP_ORIGIN", "VITE_API_BASE_URL"),
     )
-    frontend_origin: str = "http://localhost:5173"
+    frontend_origin: str = "http://personal-pm-frontend-one.vercel.app"
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
 
     # Supabase
