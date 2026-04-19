@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from backend.logging import get_request_id
+from backend.app_logging import get_request_id
 
 logger = logging.getLogger("pictureme.errors")
 

@@ -42,7 +42,7 @@ def configure_logging(settings: Settings) -> None:
             },
             "filters": {
                 "request_id": {
-                    "()": "backend.logging.RequestIdFilter",
+                    "()": "backend.app_logging.RequestIdFilter",
                 }
             },
             "handlers": {
