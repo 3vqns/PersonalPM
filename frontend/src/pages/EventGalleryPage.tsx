@@ -40,7 +40,6 @@ export function EventGalleryPage() {
   const [allPhotos, setAllPhotos] = useState<Photo[]>([]);
   const [myPhotos, setMyPhotos] = useState<MatchedPhoto[]>([]);
   const [hasFaceProfile, setHasFaceProfile] = useState(true);
-  const [downloadAllUrl, setDownloadAllUrl] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<"my" | "all">("my");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +63,6 @@ export function EventGalleryPage() {
     const response = await apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`);
     setMyPhotos(response.photos);
     setHasFaceProfile(response.hasFaceProfile);
-    setDownloadAllUrl(response.downloadAllUrl);
   }, [id]);
 
   const loadAll = useCallback(async () => {
@@ -359,19 +357,8 @@ export function EventGalleryPage() {
                 </button>
               </div>
 
-              {activeTab === "my" ? (
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  {downloadAllUrl ? (
-                    <a
-                      className="primary-button"
-                      href={downloadAllUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download all
-                    </a>
-                  ) : null}
-                </div>
+            {activeTab === "my" ? (
+                <div />
               ) : (
                 <p className="text-sm text-slate">
                   {allPhotos.length} total photo{allPhotos.length === 1 ? "" : "s"}
