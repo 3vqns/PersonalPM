@@ -175,6 +175,39 @@ def test_gallery_token_creation_rejects_expired_events(monkeypatch) -> None:
     assert exc_info.value.code == "EVENT_EXPIRED"
 
 
+def test_gallery_token_is_deterministic_and_decodes_without_db(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Expo",
+        description=None,
+        date=date(2026, 4, 18),
+        expires_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+
+    monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(gallery_service, "_require_event_membership", lambda _user_id, _event: None)
+
+    response_a = gallery_service.create_or_reuse_gallery_token(current_user, event_id=event.id)
+    response_b = gallery_service.create_or_reuse_gallery_token(current_user, event_id=event.id)
+    decoded = gallery_service._get_gallery_token_or_404(response_a.token)
+
+    assert response_a.token == response_b.token
+    assert decoded.event_id == event.id
+    assert decoded.user_id == current_user.user_id
+
+
 def test_list_event_photos_falls_back_when_original_filename_column_is_missing(monkeypatch) -> None:
     class _Query:
         def __init__(self, client) -> None:

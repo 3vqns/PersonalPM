@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import secrets
+import base64
+import hashlib
+import hmac
 from typing import Iterable
 
 from backend.config import getSettings
@@ -50,21 +52,13 @@ def get_my_photos(current_user: AuthenticatedUser, *, event_id: str) -> MyPhotos
 
 
 def create_or_reuse_gallery_token(current_user: AuthenticatedUser, *, event_id: str) -> ShareGalleryTokenResponse:
-    """Create or reuse one share token per user/event pair."""
+    """Create a deterministic share token scoped to one user/event pair."""
     event = _get_event_or_404(event_id)
     _require_event_membership(current_user.user_id, event)
     if event.status != "active":
         raise AppError("Expired events cannot create new shared galleries", code="EVENT_EXPIRED", status=409)
 
-    client = get_supabase_admin_client()
-    try:
-        existing = client.table("gallery_tokens").select("token,user_id,event_id,created_at").eq("user_id", current_user.user_id).eq(
-            "event_id", event_id
-        ).maybe_single().execute()
-    except Exception as exc:
-        raise AppError("PictureMe could not load your gallery share token", code="GALLERY_TOKEN_FETCH_FAILED", status=500) from exc
-
-    token = existing.data["token"] if existing.data else _create_gallery_token(event_id=event_id, user_id=current_user.user_id)
+    token = _create_gallery_token(event_id=event_id, user_id=current_user.user_id)
     settings = getSettings()
     return ShareGalleryTokenResponse(token=token, url=f"{settings.frontend_origin.rstrip('/')}/gallery/{token}")
 
@@ -86,32 +80,43 @@ def get_shared_gallery(token: str) -> GalleryResponse:
 
 
 def _create_gallery_token(*, event_id: str, user_id: str) -> str:
-    client = get_supabase_admin_client()
-    last_error: Exception | None = None
-
-    for _ in range(3):
-        token = secrets.token_urlsafe(18).replace("-", "").replace("_", "")[:24]
-        try:
-            client.table("gallery_tokens").insert({"token": token, "user_id": user_id, "event_id": event_id}).execute()
-            return token
-        except Exception as exc:
-            last_error = exc
-
-    raise AppError("PictureMe could not create your gallery share token", code="GALLERY_TOKEN_CREATE_FAILED", status=500) from last_error
+    settings = getSettings()
+    payload = f"{event_id}:{user_id}".encode("utf-8")
+    signature = hmac.new(
+        settings.internal_api_secret_value.encode("utf-8"),
+        payload,
+        hashlib.sha256,
+    ).digest()[:12]
+    encoded_payload = _urlsafe_b64encode(payload)
+    encoded_signature = _urlsafe_b64encode(signature)
+    return f"{encoded_payload}.{encoded_signature}"
 
 
 def _get_gallery_token_or_404(token: str) -> GalleryTokenRecord:
     try:
-        response = get_supabase_admin_client().table("gallery_tokens").select("token,user_id,event_id,created_at").eq(
-            "token", token
-        ).maybe_single().execute()
+        encoded_payload, encoded_signature = token.split(".", 1)
+        payload = _urlsafe_b64decode(encoded_payload)
+        supplied_signature = _urlsafe_b64decode(encoded_signature)
+        event_id, user_id = payload.decode("utf-8").split(":", 1)
     except Exception as exc:
-        raise AppError("PictureMe could not load this shared gallery", code="GALLERY_FETCH_FAILED", status=500) from exc
+        raise AppError("This shared gallery link is no longer available", code="GALLERY_NOT_FOUND", status=404) from exc
 
-    if not response.data:
+    expected_token = _create_gallery_token(event_id=event_id, user_id=user_id)
+    _, expected_signature = expected_token.split(".", 1)
+    expected_signature_bytes = _urlsafe_b64decode(expected_signature)
+    if not hmac.compare_digest(supplied_signature, expected_signature_bytes):
         raise AppError("This shared gallery link is no longer available", code="GALLERY_NOT_FOUND", status=404)
 
-    return GalleryTokenRecord.model_validate(response.data)
+    return GalleryTokenRecord(token=token, user_id=user_id, event_id=event_id)
+
+
+def _urlsafe_b64encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _urlsafe_b64decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(f"{value}{padding}")
 
 
 def _get_event_or_404(event_id: str) -> EventRecord:
