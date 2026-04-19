@@ -59,27 +59,7 @@ export function LandingHero() {
               </a>
             </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.6 }}
-              className="mx-auto mt-12 grid max-w-md grid-cols-3 gap-8 lg:mx-0"
-            >
-              {[
-                { value: "10K+", label: "Events Created" },
-                { value: "500K+", label: "Photos Matched" },
-                { value: "99%", label: "Accuracy Rate" },
-              ].map((stat) => (
-                <div key={stat.label} className="text-center lg:text-left">
-                  <div className="text-2xl font-bold text-primary lg:text-3xl">
-                    {stat.value}
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {stat.label}
-                  </div>
-                </div>
-              ))}
-            </motion.div>
+
           </motion.div>
 
           <motion.div
