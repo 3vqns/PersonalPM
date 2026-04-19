@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  Bell,
   CalendarPlus,
   Plus,
   Search,
@@ -15,7 +14,6 @@ import { Modal } from "../components/Modal";
 import { Spinner } from "../components/Spinner";
 import { apiFetch } from "../lib/api";
 import { cn } from "../lib/cn";
-import { getInitials } from "../lib/date";
 import {
   getFavoriteEventIds,
   getFaceBannerDismissed,
@@ -188,33 +186,6 @@ export function DashboardPage() {
                 <span className="rounded-full bg-white/75 px-4 py-2 shadow-sm">
                   {favoriteCount} favorites saved
                 </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 self-start">
-              <button
-                type="button"
-                aria-label="Notifications"
-                className="flex h-12 w-12 items-center justify-center rounded-full border border-[#e7dacb] bg-white/85 text-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-white"
-              >
-                <Bell className="h-5 w-5" />
-              </button>
-              <div className="flex items-center gap-3 rounded-full border border-[#e7dacb] bg-white/85 p-2 pr-4 shadow-sm">
-                {data.user.avatarUrl ? (
-                  <img
-                    src={data.user.avatarUrl}
-                    alt={data.user.name}
-                    className="h-12 w-12 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-seafoam-100 font-semibold text-seafoam-600">
-                    {getInitials(data.user.name)}
-                  </div>
-                )}
-                <div className="hidden text-left sm:block">
-                  <p className="text-sm font-semibold text-ink">{data.user.name}</p>
-                  <p className="text-xs text-slate">Curating your moments</p>
-                </div>
               </div>
             </div>
           </div>

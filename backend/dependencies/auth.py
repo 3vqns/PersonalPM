@@ -6,9 +6,10 @@ from typing import Any
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from supabase import Client, create_client
+from supabase import Client
 
 from backend.config import getSettings
+from backend.core.supabase_client import create_supabase_server_client
 from backend.errors import AppError
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -36,7 +37,7 @@ class AuthenticatedUser:
 def get_supabase_client() -> Client:
     """Return a cached Supabase admin client used for token verification."""
     settings = getSettings()
-    return create_client(settings.supabase_url, settings.supabase_service_role_key_value)
+    return create_supabase_server_client(settings.supabase_url, settings.supabase_service_role_key_value)
 
 
 def _serialize_user(user: Any) -> dict[str, Any]:

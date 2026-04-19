@@ -29,7 +29,9 @@ class Settings(BaseSettings):
 
     # Supabase
     supabase_url: str = Field(min_length=1)
-    supabase_service_role_key: SecretStr
+    supabase_service_role_key: SecretStr = Field(
+        validation_alias=AliasChoices("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"),
+    )
     face_profile_bucket: str = "face-profile-images"
 
     # AWS
