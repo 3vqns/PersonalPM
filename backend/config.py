@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,7 +19,10 @@ class Settings(BaseSettings):
     # App
     port: int = 8000
     node_env: Literal["development", "test", "production"] = "development"
-    app_origin: str = "http://localhost:3000"
+    app_origin: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("APP_ORIGIN", "VITE_API_BASE_URL"),
+    )
     frontend_origin: str = "http://localhost:5173"
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
 
