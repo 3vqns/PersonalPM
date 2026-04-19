@@ -1,10 +1,11 @@
-"""Cloudinary upload helpers for event gallery photos."""
+"""Cloudinary helpers for event gallery photos."""
 
 from __future__ import annotations
 
 from io import BytesIO
 from uuid import uuid4
 
+import cloudinary.api
 import cloudinary.uploader
 
 from backend.config import getSettings
@@ -47,3 +48,23 @@ def upload_event_photo(*, event_id: str, file_name: str, content: bytes) -> dict
         "bytes": response.get("bytes"),
         "format": response.get("format"),
     }
+
+
+def delete_event_photo_assets(*, public_ids: list[str]) -> dict[str, str]:
+    """Delete one or more uploaded event photo assets by Cloudinary public id."""
+    configure_cloudinary()
+    deleted: dict[str, str] = {}
+
+    for chunk_start in range(0, len(public_ids), 100):
+        chunk = public_ids[chunk_start:chunk_start + 100]
+        if not chunk:
+            continue
+
+        try:
+            response = cloudinary.api.delete_resources(chunk, resource_type="image", type="upload")
+        except Exception as exc:
+            raise AppError("PictureMe could not delete event photos from Cloudinary", code="CLOUDINARY_DELETE_FAILED", status=502) from exc
+
+        deleted.update(response.get("deleted", {}))
+
+    return deleted

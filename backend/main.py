@@ -11,6 +11,7 @@ from backend.routes.account import router as account_router
 from backend.routes.events import router as event_router
 from backend.routes.gallery import router as gallery_router
 from backend.routes.health import router as health_router
+from backend.routes.internal import router as internal_router
 from backend.routes.runtime_config import router as config_router
 from backend.routes.verification import router as verification_router
 
@@ -47,6 +48,7 @@ app.include_router(verification_router)
 app.include_router(account_router)
 app.include_router(event_router)
 app.include_router(gallery_router)
+app.include_router(internal_router)
 
 
 # --- Local entrypoint -----------------------------------------------------
