@@ -1,6 +1,7 @@
 """Event, dashboard, membership, and join-flow request/response models."""
 
-from datetime import date, datetime
+from datetime import date as calendar_date
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,7 +24,7 @@ class EventSummaryResponse(BaseModel):
 
     id: str
     name: str
-    date: date
+    date: calendar_date
     cover_url: str | None = Field(default=None, alias="coverUrl")
     host_name: str | None = Field(default=None, alias="hostName")
     photo_count: int = Field(alias="photoCount")
@@ -62,7 +63,7 @@ class EventDetailResponse(BaseModel):
     id: str
     name: str
     description: str | None = None
-    date: date
+    date: calendar_date
     expires_at: datetime = Field(alias="expiresAt")
     status: EventStatus
     cover_url: str | None = Field(default=None, alias="coverUrl")
@@ -85,7 +86,7 @@ class JoinPreviewResponse(BaseModel):
 
     id: str
     name: str
-    date: date
+    date: calendar_date
     host_name: str = Field(alias="hostName")
     cover_url: str | None = Field(default=None, alias="coverUrl")
     photo_count: int = Field(alias="photoCount")
@@ -116,7 +117,7 @@ class EventUpdateRequest(BaseModel):
     """Editable event fields."""
 
     name: str | None = Field(default=None, max_length=120)
-    date: date | None = None
+    date: calendar_date | None = None
     description: str | None = Field(default=None, max_length=2000)
 
 
@@ -143,7 +144,7 @@ class EventRecord(BaseModel):
     creator_id: str
     name: str
     description: str | None = None
-    date: date
+    date: calendar_date
     expires_at: datetime
     join_token: str
     rekognition_collection_id: str
@@ -202,7 +203,7 @@ class SharedGalleryEventResponse(BaseModel):
 
     id: str
     name: str
-    date: date
+    date: calendar_date
 
 
 class SharedGalleryOwnerResponse(BaseModel):
