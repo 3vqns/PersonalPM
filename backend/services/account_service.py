@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from functools import lru_cache
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, UploadFile
 
@@ -25,6 +27,8 @@ logger = logging.getLogger("pictureme.account")
 _ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
 _MIN_ENROLLMENT_SELFIES = 3
 _MAX_ENROLLMENT_SELFIES = 5
+_FACE_PROFILE_BASE_COLUMNS = "id,user_id,storage_path,sort_order,created_at"
+_FACE_PROFILE_EXTENDED_COLUMNS = f"{_FACE_PROFILE_BASE_COLUMNS},cloudinary_id,cloudinary_url"
 
 
 def get_account(current_user: AuthenticatedUser) -> AccountResponse:
@@ -81,10 +85,11 @@ async def replace_face_profile(
 
     client = get_supabase_admin_client()
     updated_at = datetime.now(timezone.utc)
+    persisted_assets = [_serialize_face_profile_asset(asset) for asset in uploaded_assets]
 
     try:
         client.table("face_profile_images").delete().eq("user_id", current_user.user_id).execute()
-        client.table("face_profile_images").insert(uploaded_assets).execute()
+        client.table("face_profile_images").insert(persisted_assets).execute()
         client.table("users").update(
             {
                 "face_indexed_at": updated_at.isoformat(),
@@ -189,11 +194,7 @@ def _list_face_profile_images(user_id: str) -> list[FaceProfileImageRecord]:
     """Fetch the current stored enrollment selfie metadata for a user."""
     client = get_supabase_admin_client()
     try:
-        response = client.table("face_profile_images").select(
-            "id,user_id,storage_path,cloudinary_id,cloudinary_url,sort_order,created_at"
-        ).eq(
-            "user_id", user_id
-        ).order("sort_order").execute()
+        response = client.table("face_profile_images").select(_face_profile_select_columns()).eq("user_id", user_id).order("sort_order").execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your face profile", code="FACE_PROFILE_FETCH_FAILED", status=500) from exc
 
@@ -235,6 +236,7 @@ async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order
         "sort_order": sort_order,
     }
 
+
 def _clear_user_matches(user_id: str) -> None:
     """Delete dependent match rows for a user."""
     try:
@@ -255,6 +257,10 @@ def _delete_face_profile_assets(assets: list[FaceProfileImageRecord | dict], *, 
         storage_path = asset.storage_path if isinstance(asset, FaceProfileImageRecord) else asset.get("storage_path")
         if cloudinary_id:
             cloudinary_ids.append(cloudinary_id)
+        elif _is_cloudinary_url(storage_path):
+            inferred_public_id = _extract_cloudinary_public_id(storage_path)
+            if inferred_public_id:
+                cloudinary_ids.append(inferred_public_id)
         elif storage_path:
             storage_paths.append(storage_path)
 
@@ -295,3 +301,67 @@ def _validate_selfie_count(count: int) -> None:
         status=422,
         details={"min": _MIN_ENROLLMENT_SELFIES, "max": _MAX_ENROLLMENT_SELFIES, "received": count},
     )
+
+
+def _serialize_face_profile_asset(asset: dict) -> dict:
+    """Persist Cloudinary metadata when supported, otherwise fall back to the legacy table shape."""
+    if _face_profile_supports_cloudinary_columns():
+        return asset
+
+    return {
+        "user_id": asset["user_id"],
+        "storage_path": asset["cloudinary_url"],
+        "sort_order": asset["sort_order"],
+    }
+
+
+@lru_cache(maxsize=1)
+def _face_profile_supports_cloudinary_columns() -> bool:
+    """Return whether the current face_profile_images table includes Cloudinary metadata columns."""
+    try:
+        get_supabase_admin_client().table("face_profile_images").select(_FACE_PROFILE_EXTENDED_COLUMNS).limit(1).execute()
+        return True
+    except Exception as exc:
+        if _is_missing_face_profile_cloudinary_columns_error(exc):
+            return False
+        raise
+
+
+def _face_profile_select_columns() -> str:
+    """Return the safest select list for the current face_profile_images schema."""
+    return _FACE_PROFILE_EXTENDED_COLUMNS if _face_profile_supports_cloudinary_columns() else _FACE_PROFILE_BASE_COLUMNS
+
+
+def _is_missing_face_profile_cloudinary_columns_error(exc: Exception) -> bool:
+    """Detect PostgREST column-missing errors for backward-compatible face-profile reads."""
+    message = str(exc).lower()
+    return "cloudinary_id" in message or "cloudinary_url" in message
+
+
+def _is_cloudinary_url(value: str | None) -> bool:
+    """Return whether a stored face-profile path is actually a Cloudinary delivery URL."""
+    return bool(value and value.startswith(("http://", "https://")) and "res.cloudinary.com" in value)
+
+
+def _extract_cloudinary_public_id(url: str) -> str | None:
+    """Best-effort extraction of a Cloudinary public id from a delivery URL."""
+    parsed = urlparse(url)
+    upload_marker = "/upload/"
+    if upload_marker not in parsed.path:
+        return None
+
+    _, tail = parsed.path.split(upload_marker, 1)
+    segments = [segment for segment in tail.split("/") if segment]
+    while segments and (
+        (segments[0].startswith("v") and segments[0][1:].isdigit())
+        or "," in segments[0]
+        or "_" in segments[0]
+    ):
+        segments.pop(0)
+
+    if not segments:
+        return None
+
+    asset_path = "/".join(segments)
+    dot_index = asset_path.rfind(".")
+    return asset_path[:dot_index] if dot_index > asset_path.rfind("/") else asset_path

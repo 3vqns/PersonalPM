@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from functools import lru_cache
 from urllib.request import urlopen
 
 from botocore.exceptions import ClientError
@@ -19,6 +20,8 @@ from backend.schemas.event import EventMemberRecord, EventRecord
 
 logger = logging.getLogger("pictureme.matching")
 _MATCHABLE_SELFIE_TYPES = {"image/jpeg", "image/png"}
+_FACE_PROFILE_BASE_COLUMNS = "id,user_id,storage_path,sort_order,created_at"
+_FACE_PROFILE_EXTENDED_COLUMNS = f"{_FACE_PROFILE_BASE_COLUMNS},cloudinary_id,cloudinary_url"
 
 
 def trigger_user_event_match(*, user_id: str, event_id: str, reason: str) -> None:
@@ -192,6 +195,12 @@ def _download_face_profile_image(asset: FaceProfileImageRecord) -> bytes:
                 return response.read()
         except Exception as exc:
             raise AppError("PictureMe could not download an enrollment selfie", code="SELFIE_DOWNLOAD_FAILED", status=500) from exc
+    if _is_remote_face_profile_path(asset.storage_path):
+        try:
+            with urlopen(asset.storage_path) as response:
+                return response.read()
+        except Exception as exc:
+            raise AppError("PictureMe could not download an enrollment selfie", code="SELFIE_DOWNLOAD_FAILED", status=500) from exc
 
     try:
         return get_supabase_admin_client().storage.from_(getSettings().face_profile_bucket).download(asset.storage_path)
@@ -265,7 +274,7 @@ def _map_face_ids_to_photo_ids(face_ids: Iterable[str], event_id: str) -> dict[s
 def _list_matchable_face_profile_images(user_id: str) -> list[FaceProfileImageRecord]:
     try:
         response = get_supabase_admin_client().table("face_profile_images").select(
-            "id,user_id,storage_path,cloudinary_id,cloudinary_url,sort_order,created_at"
+            _face_profile_select_columns()
         ).eq(
             "user_id", user_id
         ).order("sort_order").execute()
@@ -278,6 +287,34 @@ def _list_matchable_face_profile_images(user_id: str) -> list[FaceProfileImageRe
     if skipped:
         logger.warning("Skipping %s enrollment selfies for user %s because SearchFacesByImage only supports JPEG/PNG inputs", skipped, user_id)
     return supported_rows
+
+
+@lru_cache(maxsize=1)
+def _face_profile_supports_cloudinary_columns() -> bool:
+    """Return whether the current face_profile_images table includes Cloudinary metadata columns."""
+    try:
+        get_supabase_admin_client().table("face_profile_images").select(_FACE_PROFILE_EXTENDED_COLUMNS).limit(1).execute()
+        return True
+    except Exception as exc:
+        if _is_missing_face_profile_cloudinary_columns_error(exc):
+            return False
+        raise
+
+
+def _face_profile_select_columns() -> str:
+    """Return the safest select list for the current face_profile_images schema."""
+    return _FACE_PROFILE_EXTENDED_COLUMNS if _face_profile_supports_cloudinary_columns() else _FACE_PROFILE_BASE_COLUMNS
+
+
+def _is_missing_face_profile_cloudinary_columns_error(exc: Exception) -> bool:
+    """Detect PostgREST column-missing errors for backward-compatible face-profile reads."""
+    message = str(exc).lower()
+    return "cloudinary_id" in message or "cloudinary_url" in message
+
+
+def _is_remote_face_profile_path(path: str) -> bool:
+    """Return whether the legacy storage_path column contains a remote image URL."""
+    return path.startswith(("http://", "https://"))
 
 
 def _list_matchable_event_members(event_id: str) -> list[EventMemberRecord]:
