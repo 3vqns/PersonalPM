@@ -14,7 +14,7 @@ from starlette.datastructures import Headers
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord
-from backend.schemas.upload import StagedUploadFile, UploadJobRecord
+from backend.schemas.upload import StagedUploadFile
 from backend.services import photo_upload_service
 
 
@@ -87,25 +87,12 @@ def test_upload_batch_schedules_background_processing(monkeypatch) -> None:
     staged_file = StagedUploadFile(file_name="one.jpg", content_type="image/jpeg", byte_size=11, content=b"image-bytes")
 
     monkeypatch.setattr(photo_upload_service, "_require_upload_access", lambda _user_id, _event_id: (event, "creator"))
+
     async def _fake_stage_upload_files(_files):
         return [staged_file]
 
     monkeypatch.setattr(photo_upload_service, "_stage_upload_files", _fake_stage_upload_files)
-    monkeypatch.setattr(
-        photo_upload_service,
-        "create_upload_job",
-        lambda **_kwargs: UploadJobRecord(
-            id="job-1",
-            event_id=event.id,
-            created_by=current_user.user_id,
-            total_files=1,
-            uploaded_files=0,
-            indexed_files=0,
-            failed_files=0,
-            current_file_name=None,
-            status="queued",
-        ),
-    )
+    monkeypatch.setattr(photo_upload_service, "uuid4", lambda: SimpleNamespace(hex="job1"))
 
     response = asyncio.run(
         photo_upload_service.start_event_upload_batch(
@@ -116,8 +103,8 @@ def test_upload_batch_schedules_background_processing(monkeypatch) -> None:
         )
     )
 
-    assert response.job_id == "job-1"
+    assert response.job_id == "upload-job1"
     assert len(background_tasks.tasks) == 1
     queued_func, args, _kwargs = background_tasks.tasks[0]
     assert queued_func is photo_upload_service._process_upload_job
-    assert args[0] == "job-1"
+    assert args[0] == "upload-job1"

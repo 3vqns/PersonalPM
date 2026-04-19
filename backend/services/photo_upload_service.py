@@ -14,17 +14,10 @@ from backend.core.supabase_response import get_first_row
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord, EventRole
-from backend.schemas.upload import StagedUploadFile, UploadJobFileRecord, UploadJobStartResponse
+from backend.schemas.upload import StagedUploadFile, UploadJobStartResponse
 from backend.services.cloudinary_service import upload_event_photo
 from backend.services.matching_service import trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
-from backend.services.upload_job_service import (
-    create_upload_job,
-    finalize_job,
-    list_upload_job_files,
-    mark_file_status,
-    mark_job_running,
-)
 
 logger = logging.getLogger("pictureme.uploads")
 _ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -37,7 +30,7 @@ async def start_event_upload_batch(
     files: list[UploadFile],
     background_tasks: BackgroundTasks,
 ) -> UploadJobStartResponse:
-    """Validate an upload request, create its batch row, and schedule async processing."""
+    """Validate an upload request, generate a batch id, and schedule async processing."""
     event, role = _require_upload_access(current_user.user_id, event_id)
     if event.status != "active":
         raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
@@ -53,13 +46,13 @@ async def start_event_upload_batch(
     if not staged_files:
         raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
 
-    job = create_upload_job(event_id=event.id, created_by=current_user.user_id, files=staged_files)
-    background_tasks.add_task(_process_upload_job, job.id, current_user.user_id, event, staged_files)
+    job_id = f"upload-{uuid4().hex}"
+    background_tasks.add_task(_process_upload_job, job_id, current_user.user_id, event, staged_files)
     logger.info(
         "Accepted upload batch",
-        extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
+        extra={"job_id": job_id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
     )
-    return UploadJobStartResponse(jobId=job.id)
+    return UploadJobStartResponse(jobId=job_id)
 
 
 async def _stage_upload_files(files: list[UploadFile]) -> list[StagedUploadFile]:
@@ -103,22 +96,34 @@ async def _stage_upload_files(files: list[UploadFile]) -> list[StagedUploadFile]
 
 
 def _process_upload_job(job_id: str, uploader_user_id: str, event: EventRecord, staged_files: list[StagedUploadFile]) -> None:
-    file_rows = list_upload_job_files(job_id)
-    for file_row, staged_file in zip(file_rows, staged_files, strict=False):
-        _process_one_file(
+    indexed_files = 0
+    failed_files = 0
+
+    for staged_file in staged_files:
+        completed = _process_one_file(
             job_id=job_id,
             uploader_user_id=uploader_user_id,
             event=event,
-            file_row=file_row,
             staged_file=staged_file,
         )
-        finalize_job(job_id)
+        if completed:
+            indexed_files += 1
+        else:
+            failed_files += 1
 
-    progress = finalize_job(job_id)
-    if progress.indexed_files > 0:
+    logger.info(
+        "Upload batch finished",
+        extra={
+            "job_id": job_id,
+            "event_id": event.id,
+            "indexed_files": indexed_files,
+            "failed_files": failed_files,
+        },
+    )
+    if indexed_files > 0:
         logger.info(
             "Upload batch finished and will trigger rematch",
-            extra={"job_id": job_id, "event_id": event.id, "indexed_files": progress.indexed_files},
+            extra={"job_id": job_id, "event_id": event.id, "indexed_files": indexed_files},
         )
         trigger_event_member_rematch(event_id=event.id, reason="photo-upload-batch")
 
@@ -128,48 +133,38 @@ def _process_one_file(
     job_id: str,
     uploader_user_id: str,
     event: EventRecord,
-    file_row: UploadJobFileRecord,
     staged_file: StagedUploadFile,
-) -> None:
-    mark_job_running(job_id=job_id, status="uploading", current_file_name=staged_file.file_name)
-    mark_file_status(file_row_id=file_row.id, status="uploading")
+) -> bool:
+    logger.info(
+        "Processing upload file",
+        extra={"job_id": job_id, "event_id": event.id, "file_name": staged_file.file_name},
+    )
 
     try:
         upload_result = upload_event_photo(event_id=event.id, file_name=staged_file.file_name, content=staged_file.content)
-        mark_file_status(
-            file_row_id=file_row.id,
-            status="uploaded",
-            extra={
-                "cloudinary_public_id": upload_result["public_id"],
-                "cloudinary_url": upload_result["cloudinary_url"],
-                "thumbnail_url": upload_result["thumbnail_url"],
-            },
-        )
-
         photo_id = _insert_photo_row(event.id, uploader_user_id, upload_result)
-        mark_job_running(job_id=job_id, status="indexing", current_file_name=staged_file.file_name)
-        mark_file_status(file_row_id=file_row.id, status="indexing", extra={"photo_id": photo_id})
-
         face_records = index_event_photo(collection_id=event.rekognition_collection_id, photo_id=photo_id, content=staged_file.content)
         _insert_face_index_rows(event.id, photo_id, face_records)
-
-        mark_file_status(
-            file_row_id=file_row.id,
-            status="completed",
+        logger.info(
+            "Completed upload file",
             extra={
+                "job_id": job_id,
+                "event_id": event.id,
+                "file_name": staged_file.file_name,
                 "photo_id": photo_id,
                 "face_count": len(face_records),
             },
         )
+        return True
     except AppError as exc:
         logger.warning(
             "Upload file failed",
             extra={"job_id": job_id, "event_id": event.id, "file_name": staged_file.file_name, "code": exc.code},
         )
-        mark_file_status(file_row_id=file_row.id, status="failed", current_error=exc.message)
+        return False
     except Exception as exc:
         logger.exception("Unexpected failure while processing upload job %s file %s", job_id, staged_file.file_name)
-        mark_file_status(file_row_id=file_row.id, status="failed", current_error="PictureMe could not process this photo")
+        return False
 
 
 def _insert_photo_row(event_id: str, uploader_user_id: str, upload_result: dict) -> str:

@@ -1,9 +1,8 @@
 import { CheckCircle2, LoaderCircle, UploadCloud } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { apiFetch } from "../lib/api";
 import { cn } from "../lib/cn";
-import { supabase } from "../lib/supabase";
 import type { UploadJobProgress } from "../types";
 import { Modal } from "./Modal";
 
@@ -27,9 +26,11 @@ export function UploadModal({
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<UploadJobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const uploadStarted = Boolean(jobId) && !isDemo && !error;
 
   const disableClose =
     submitting &&
+    isDemo &&
     progress?.status !== "completed" &&
     progress?.status !== "failed";
 
@@ -45,39 +46,6 @@ export function UploadModal({
       ),
     );
   }, [progress]);
-
-  useEffect(() => {
-    if (!jobId || isDemo) {
-      return;
-    }
-
-    const channel = supabase
-      .channel(`upload-jobs-${eventId}`)
-      .on("broadcast", { event: "progress" }, ({ payload }) => {
-        const update = payload as UploadJobProgress;
-        if (update.jobId !== jobId) {
-          return;
-        }
-
-        setProgress(update);
-
-        if (update.status === "completed" && !completedRef.current) {
-          completedRef.current = true;
-          setSubmitting(false);
-          onCompleted?.();
-        }
-
-        if (update.status === "failed") {
-          setSubmitting(false);
-          setError("PictureMe could not finish indexing this batch.");
-        }
-      })
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [eventId, isDemo, jobId, onCompleted]);
 
   function updateFiles(nextFiles: File[]) {
     setFiles(nextFiles.filter((file) => file.type.startsWith("image/")));
@@ -108,17 +76,17 @@ export function UploadModal({
       );
 
       setJobId(response.jobId);
-      setProgress({
-        jobId: response.jobId,
-        eventId,
-        totalFiles: files.length,
-        uploadedFiles: 0,
-        indexedFiles: 0,
-        failedFiles: 0,
-        status: "queued",
-      });
 
       if (isDemo) {
+        setProgress({
+          jobId: response.jobId,
+          eventId,
+          totalFiles: files.length,
+          uploadedFiles: 0,
+          indexedFiles: 0,
+          failedFiles: 0,
+          status: "queued",
+        });
         files.forEach((file, index) => {
           window.setTimeout(() => {
             setProgress((current) => {
@@ -145,6 +113,9 @@ export function UploadModal({
             }
           }, 350 * (index + 1));
         });
+      } else {
+        setSubmitting(false);
+        setFiles([]);
       }
     } catch (requestError) {
       setSubmitting(false);
@@ -255,6 +226,19 @@ export function UploadModal({
           </div>
         ) : null}
 
+        {uploadStarted ? (
+          <div className="space-y-2 rounded-3xl border border-seafoam-200 bg-seafoam-50 p-4">
+            <div className="flex items-center gap-2 text-seafoam-700">
+              <CheckCircle2 className="h-4 w-4" />
+              <p className="font-medium">Upload started</p>
+            </div>
+            <p className="text-sm text-slate">
+              PictureMe is processing this batch in the background. New photos will
+              appear automatically in the gallery as they finish indexing.
+            </p>
+          </div>
+        ) : null}
+
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
         <div className="flex flex-col gap-3 sm:flex-row">
@@ -264,15 +248,24 @@ export function UploadModal({
             onClick={onClose}
             disabled={disableClose}
           >
-            {progress?.status === "completed" ? "Done" : "Cancel"}
+            {progress?.status === "completed" || uploadStarted ? "Done" : "Cancel"}
           </button>
           <button
             type="button"
             className="primary-button flex-1"
             onClick={() => void handleSubmit()}
-            disabled={submitting || !files.length || progress?.status === "completed"}
+            disabled={
+              submitting ||
+              !files.length ||
+              progress?.status === "completed" ||
+              uploadStarted
+            }
           >
-            {progress?.status === "completed" ? "Indexed" : "Start upload"}
+            {progress?.status === "completed"
+              ? "Indexed"
+              : uploadStarted
+                ? "Processing"
+                : "Start upload"}
           </button>
         </div>
       </div>
