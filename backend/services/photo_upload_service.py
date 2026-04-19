@@ -40,6 +40,13 @@ async def start_event_upload_batch(
     event, role = _require_upload_access(current_user.user_id, event_id)
     if event.status != "active":
         raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
+    if len(files) > getSettings().max_event_upload_batch_files:
+        raise AppError(
+            "Too many photos were submitted in one batch",
+            code="UPLOAD_BATCH_TOO_LARGE",
+            status=422,
+            details={"maxFiles": getSettings().max_event_upload_batch_files, "received": len(files)},
+        )
 
     staged_files = await _stage_upload_files(files)
     if not staged_files:
@@ -47,7 +54,10 @@ async def start_event_upload_batch(
 
     job = create_upload_job(event_id=event.id, created_by=current_user.user_id, files=staged_files)
     background_tasks.add_task(_process_upload_job, job.id, current_user.user_id, event, staged_files)
-    logger.info("Accepted upload batch %s for event %s with role %s", job.id, event.id, role)
+    logger.info(
+        "Accepted upload batch",
+        extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
+    )
     return UploadJobStartResponse(jobId=job.id)
 
 
@@ -56,6 +66,9 @@ async def _stage_upload_files(files: list[UploadFile]) -> list[StagedUploadFile]
     staged_files: list[StagedUploadFile] = []
 
     for upload in files:
+        filename = (upload.filename or "").strip()
+        if not filename:
+            raise AppError("Each uploaded photo needs a filename", code="INVALID_UPLOAD", status=422)
         if upload.content_type not in _ALLOWED_UPLOAD_TYPES:
             raise AppError(
                 "Event photo uploads must be JPEG, PNG, or WebP images",
@@ -78,7 +91,7 @@ async def _stage_upload_files(files: list[UploadFile]) -> list[StagedUploadFile]
 
         staged_files.append(
             StagedUploadFile(
-                file_name=upload.filename or f"photo-{uuid4().hex}.jpg",
+                file_name=filename or f"photo-{uuid4().hex}.jpg",
                 content_type=upload.content_type or "image/jpeg",
                 byte_size=byte_size,
                 content=content,
@@ -102,6 +115,10 @@ def _process_upload_job(job_id: str, uploader_user_id: str, event: EventRecord, 
 
     progress = finalize_job(job_id)
     if progress.indexed_files > 0:
+        logger.info(
+            "Upload batch finished and will trigger rematch",
+            extra={"job_id": job_id, "event_id": event.id, "indexed_files": progress.indexed_files},
+        )
         trigger_event_member_rematch(event_id=event.id, reason="photo-upload-batch")
 
 
@@ -144,6 +161,10 @@ def _process_one_file(
             },
         )
     except AppError as exc:
+        logger.warning(
+            "Upload file failed",
+            extra={"job_id": job_id, "event_id": event.id, "file_name": staged_file.file_name, "code": exc.code},
+        )
         mark_file_status(file_row_id=file_row.id, status="failed", current_error=exc.message)
     except Exception as exc:
         logger.exception("Unexpected failure while processing upload job %s file %s", job_id, staged_file.file_name)

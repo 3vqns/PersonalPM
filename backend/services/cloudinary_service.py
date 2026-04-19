@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from io import BytesIO
 from uuid import uuid4
 
@@ -10,7 +11,10 @@ import cloudinary.uploader
 
 from backend.config import getSettings
 from backend.core.cloudinary import configure_cloudinary
+from backend.core.retry import run_with_retries
 from backend.errors import AppError
+
+logger = logging.getLogger("pictureme.cloudinary")
 
 
 def upload_event_photo(*, event_id: str, file_name: str, content: bytes) -> dict:
@@ -20,19 +24,25 @@ def upload_event_photo(*, event_id: str, file_name: str, content: bytes) -> dict
     public_id = f"{settings.event_photo_folder}/{event_id}/{uuid4().hex}"
 
     try:
-        response = cloudinary.uploader.upload(
-            BytesIO(content),
-            public_id=public_id,
-            resource_type="image",
-            overwrite=False,
-            folder=None,
-            eager=[
-                {"width": 640, "height": 640, "crop": "limit", "quality": "auto", "fetch_format": "auto"},
-            ],
-            use_filename=False,
-            unique_filename=False,
-            asset_folder=f"{settings.event_photo_folder}/{event_id}",
-            filename_override=file_name,
+        response = run_with_retries(
+            operation_name="cloudinary.upload_event_photo",
+            attempts=settings.external_retry_attempts,
+            backoff_seconds=settings.external_retry_backoff_seconds,
+            logger=logger,
+            func=lambda: cloudinary.uploader.upload(
+                BytesIO(content),
+                public_id=public_id,
+                resource_type="image",
+                overwrite=False,
+                folder=None,
+                eager=[
+                    {"width": 640, "height": 640, "crop": "limit", "quality": "auto", "fetch_format": "auto"},
+                ],
+                use_filename=False,
+                unique_filename=False,
+                asset_folder=f"{settings.event_photo_folder}/{event_id}",
+                filename_override=file_name,
+            ),
         )
     except Exception as exc:
         raise AppError("PictureMe could not upload a photo to Cloudinary", code="CLOUDINARY_UPLOAD_FAILED", status=502) from exc
@@ -61,7 +71,13 @@ def delete_event_photo_assets(*, public_ids: list[str]) -> dict[str, str]:
             continue
 
         try:
-            response = cloudinary.api.delete_resources(chunk, resource_type="image", type="upload")
+            response = run_with_retries(
+                operation_name="cloudinary.delete_event_photo_assets",
+                attempts=getSettings().external_retry_attempts,
+                backoff_seconds=getSettings().external_retry_backoff_seconds,
+                logger=logger,
+                func=lambda chunk=chunk: cloudinary.api.delete_resources(chunk, resource_type="image", type="upload"),
+            )
         except Exception as exc:
             raise AppError("PictureMe could not delete event photos from Cloudinary", code="CLOUDINARY_DELETE_FAILED", status=502) from exc
 

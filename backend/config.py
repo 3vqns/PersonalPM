@@ -31,17 +31,24 @@ class Settings(BaseSettings):
     # AWS
     aws_region: str = "us-east-1"
     rekognition_collection_prefix: str = "pictureme-event"
-    matching_similarity_threshold: float = 80.0
-    matching_max_faces_per_selfie: int = 50
+    aws_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    aws_read_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    aws_retry_attempts: int = Field(default=3, ge=1, le=10)
+    matching_similarity_threshold: float = Field(default=80.0, ge=0, le=100)
+    matching_max_faces_per_selfie: int = Field(default=50, ge=1, le=4096)
 
     # Cloudinary
     cloudinary_cloud_name: str = Field(min_length=1)
     cloudinary_api_key: SecretStr
     cloudinary_api_secret: SecretStr
     event_photo_folder: str = "pictureme/events"
+    external_retry_attempts: int = Field(default=3, ge=1, le=10)
+    external_retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
 
     # Uploads
-    max_event_photo_size_bytes: int = 15 * 1024 * 1024
+    max_event_photo_size_bytes: int = Field(default=15 * 1024 * 1024, gt=0)
+    max_event_upload_batch_files: int = Field(default=50, ge=1, le=500)
+    max_face_profile_selfie_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
     # Internal
     internal_api_secret: SecretStr

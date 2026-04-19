@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 
 from botocore.exceptions import ClientError
 
+from backend.config import getSettings
 from backend.core.rekognition import get_rekognition_client
+from backend.core.retry import run_with_retries
 from backend.core.supabase_admin import get_supabase_admin_client
 from backend.errors import AppError
 from backend.schemas.event import EventRecord
@@ -131,8 +133,15 @@ def _list_event_photo_assets(event_id: str) -> list[dict]:
 
 
 def _delete_rekognition_collection_safe(collection_id: str, errors: list[str]) -> bool:
+    settings = getSettings()
     try:
-        get_rekognition_client().delete_collection(CollectionId=collection_id)
+        run_with_retries(
+            operation_name="rekognition.delete_collection",
+            attempts=settings.external_retry_attempts,
+            backoff_seconds=settings.external_retry_backoff_seconds,
+            logger=logger,
+            func=lambda: get_rekognition_client().delete_collection(CollectionId=collection_id),
+        )
         return True
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code")

@@ -205,6 +205,13 @@ async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order
     content = await selfie.read()
     if not content:
         raise AppError("Enrollment selfie upload was empty", code="INVALID_SELFIE", status=422)
+    if len(content) > getSettings().max_face_profile_selfie_size_bytes:
+        raise AppError(
+            "Enrollment selfies exceed the allowed upload size",
+            code="SELFIE_TOO_LARGE",
+            status=422,
+            details={"maxBytes": getSettings().max_face_profile_selfie_size_bytes, "receivedBytes": len(content)},
+        )
 
     settings = getSettings()
     path = _build_storage_path(user_id, sort_order, selfie.filename)

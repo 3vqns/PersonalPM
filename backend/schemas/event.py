@@ -115,9 +115,9 @@ class EventMemberResponse(BaseModel):
 class EventUpdateRequest(BaseModel):
     """Editable event fields."""
 
-    name: str | None = None
+    name: str | None = Field(default=None, max_length=120)
     date: date | None = None
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class EventMemberRoleUpdateRequest(BaseModel):
@@ -229,7 +229,7 @@ class GalleryResponse(BaseModel):
 class GalleryTokenCreateRequest(BaseModel):
     """Create or reuse a share token scoped to one user and one event."""
 
-    event_id: str = Field(alias="eventId")
+    event_id: str = Field(alias="eventId", min_length=1)
 
     model_config = ConfigDict(populate_by_name=True)
 

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 
 from backend.config import getSettings
+from backend.core.retry import run_with_retries
 from backend.core.rekognition import get_rekognition_client
 from backend.core.supabase_admin import get_supabase_admin_client
 from backend.errors import AppError
@@ -199,12 +200,18 @@ def _search_faces_by_image(
     storage_path: str,
 ) -> dict[str, float]:
     try:
-        response = get_rekognition_client().search_faces_by_image(
-            CollectionId=collection_id,
-            Image={"Bytes": image_bytes},
-            MaxFaces=max_faces,
-            FaceMatchThreshold=face_match_threshold,
-            QualityFilter="AUTO",
+        response = run_with_retries(
+            operation_name="rekognition.search_faces_by_image",
+            attempts=getSettings().external_retry_attempts,
+            backoff_seconds=getSettings().external_retry_backoff_seconds,
+            logger=logger,
+            func=lambda: get_rekognition_client().search_faces_by_image(
+                CollectionId=collection_id,
+                Image={"Bytes": image_bytes},
+                MaxFaces=max_faces,
+                FaceMatchThreshold=face_match_threshold,
+                QualityFilter="AUTO",
+            ),
         )
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code")

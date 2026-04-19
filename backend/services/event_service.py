@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from fastapi import BackgroundTasks
 
 from backend.config import getSettings
+from backend.core.retry import run_with_retries
 from backend.core.rekognition import get_rekognition_client
 from backend.core.supabase_admin import get_supabase_admin_client
 from backend.dependencies.auth import AuthenticatedUser
@@ -66,7 +67,13 @@ def create_event(current_user: AuthenticatedUser, *, name: str, date_value: date
     collection_id = f"{settings.rekognition_collection_prefix}-{secrets.token_hex(8)}"
 
     try:
-        get_rekognition_client().create_collection(CollectionId=collection_id)
+        run_with_retries(
+            operation_name="rekognition.create_collection",
+            attempts=settings.external_retry_attempts,
+            backoff_seconds=settings.external_retry_backoff_seconds,
+            logger=logger,
+            func=lambda: get_rekognition_client().create_collection(CollectionId=collection_id),
+        )
     except Exception as exc:
         raise AppError("PictureMe could not create the event collection", code="REKOGNITION_CREATE_FAILED", status=502) from exc
 
@@ -554,4 +561,3 @@ def _delete_rekognition_collection(collection_id: str, *, suppress_not_found: bo
             logger.warning("Failed to delete Rekognition collection %s", collection_id)
             return
         raise AppError("PictureMe could not delete the event collection", code="REKOGNITION_DELETE_FAILED", status=502) from exc
-
