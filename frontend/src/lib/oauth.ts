@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 
 export async function signInWithGoogleOAuth(redirectPath?: string) {
-  const redirectUrl = new URL(window.location.origin);
+  const redirectUrl = new URL("https://personal-pm-frontend-one.vercel.app");
   redirectUrl.pathname = redirectPath && redirectPath.startsWith("/")
     ? redirectPath
     : window.location.pathname;
