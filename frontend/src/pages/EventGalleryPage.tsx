@@ -1,7 +1,6 @@
 import {
   AlertCircle,
   Images,
-  Link as LinkIcon,
   Settings,
   Sparkles,
   Upload,
@@ -49,7 +48,6 @@ export function EventGalleryPage() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [galleryShareUrl, setGalleryShareUrl] = useState<string | null>(null);
-  const [galleryCopied, setGalleryCopied] = useState(false);
 
   const loadEvent = useCallback(async () => {
     const response = await apiFetch<EventDetail>(`/api/events/${id}`);
@@ -182,9 +180,6 @@ export function EventGalleryPage() {
 
   async function handleShareGallery() {
     if (galleryShareUrl) {
-      await navigator.clipboard.writeText(galleryShareUrl);
-      setGalleryCopied(true);
-      window.setTimeout(() => setGalleryCopied(false), 1500);
       return;
     }
 
@@ -193,9 +188,6 @@ export function EventGalleryPage() {
       body: { eventId: id },
     });
     setGalleryShareUrl(response.url);
-    await navigator.clipboard.writeText(response.url);
-    setGalleryCopied(true);
-    window.setTimeout(() => setGalleryCopied(false), 1500);
   }
 
   async function handleDeletePhoto(photo: Photo) {
@@ -348,8 +340,7 @@ export function EventGalleryPage() {
                     className="secondary-button"
                     onClick={() => void handleShareGallery()}
                   >
-                    <LinkIcon className="mr-2 h-4 w-4" />
-                    {galleryCopied ? "Gallery link copied" : "Share my gallery"}
+                    Share gallery
                   </button>
                   {downloadAllUrl ? (
                     <a
@@ -368,6 +359,19 @@ export function EventGalleryPage() {
                 </p>
               )}
             </div>
+
+            {activeTab === "my" && galleryShareUrl ? (
+              <ShareEventPanel
+                eventName={event.name}
+                shareUrl={galleryShareUrl}
+                eyebrow="Share gallery"
+                title="Share these photos instantly"
+                description="Scan the QR code or send the gallery link so anyone can view these shared photos without creating an account."
+                linkLabel="Gallery link"
+                copyLabel="Copy gallery link"
+                downloadLabel="Download gallery QR"
+              />
+            ) : null}
 
             {activeTab === "my" ? (
               !hasFaceProfile ? (

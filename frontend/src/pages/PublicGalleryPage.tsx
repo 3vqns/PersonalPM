@@ -1,6 +1,6 @@
-import { AlertCircle, ArrowRight, Images, Link as LinkIcon } from "lucide-react";
+import { AlertCircle, Images, Link as LinkIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { PhotoGrid } from "../components/PhotoGrid";
 import { PhotoLightbox } from "../components/PhotoLightbox";
@@ -105,23 +105,6 @@ export function PublicGalleryPage() {
             description="This public gallery link is active, but there are no matched photos available right now."
           />
         )}
-      </section>
-
-      <section className="surface-card flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-            Want your own gallery?
-          </p>
-          <h2 className="mt-2 text-2xl text-ink">Join PictureMe for future events</h2>
-          <p className="mt-2 text-sm leading-6 text-slate">
-            Create your account once, add a face profile when you’re ready, and
-            open My Photos instantly at the next event.
-          </p>
-        </div>
-        <Link className="primary-button" to="/signup">
-          Join PictureMe
-          <ArrowRight className="ml-2 h-4 w-4" />
-        </Link>
       </section>
     </div>
   );
