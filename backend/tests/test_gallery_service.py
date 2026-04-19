@@ -42,8 +42,8 @@ def test_shared_gallery_uses_only_token_owner_matches(monkeypatch) -> None:
             email="user@example.com",
             name="User One",
             avatar_url="https://example.com/avatar.jpg",
-            face_profile_completed=True,
-            face_profile_updated_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+            face_indexed_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+            rekognition_face_id=None,
         ),
     )
     monkeypatch.setattr(
@@ -106,4 +106,3 @@ def test_gallery_token_creation_rejects_expired_events(monkeypatch) -> None:
         gallery_service.create_or_reuse_gallery_token(current_user, event_id=expired_event.id)
 
     assert exc_info.value.code == "EVENT_EXPIRED"
-

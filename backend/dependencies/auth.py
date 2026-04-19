@@ -67,8 +67,9 @@ async def require_authenticated_user(
     if not token:
         raise AppError("Invalid bearer token", code="UNAUTHORIZED", status=401)
 
+    client = get_supabase_client()
     try:
-        auth_response = get_supabase_client().auth.get_user(token)
+        auth_response = client.auth.get_user(token)
     except Exception as exc:
         raise AppError("Invalid bearer token", code="UNAUTHORIZED", status=401) from exc
 

@@ -90,8 +90,7 @@ async def replace_face_profile(
         client.table("face_profile_images").insert(uploaded_assets).execute()
         client.table("users").update(
             {
-                "face_profile_completed": True,
-                "face_profile_updated_at": updated_at.isoformat(),
+                "face_indexed_at": updated_at.isoformat(),
             }
         ).eq("id", current_user.user_id).execute()
         _clear_user_matches(current_user.user_id)
@@ -126,8 +125,8 @@ def delete_face_profile(current_user: AuthenticatedUser) -> FaceProfileStatusRes
         client.table("face_profile_images").delete().eq("user_id", current_user.user_id).execute()
         client.table("users").update(
             {
-                "face_profile_completed": False,
-                "face_profile_updated_at": None,
+                "face_indexed_at": None,
+                "rekognition_face_id": None,
             }
         ).eq("id", current_user.user_id).execute()
     except Exception as exc:
@@ -144,8 +143,8 @@ def _build_account_response(user_record: PublicUserRecord) -> AccountResponse:
             email=user_record.email,
             name=user_record.name,
             avatarUrl=user_record.avatar_url,
-            hasFaceProfile=user_record.face_profile_completed,
-            faceIndexedAt=user_record.face_profile_updated_at,
+            hasFaceProfile=user_record.has_face_profile,
+            faceIndexedAt=user_record.face_indexed_at,
         )
     )
 
@@ -156,7 +155,7 @@ def get_public_user_record(current_user: AuthenticatedUser) -> PublicUserRecord:
 
     try:
         response = client.table("users").select(
-            "id,email,name,avatar_url,face_profile_completed,face_profile_updated_at"
+            "id,email,name,avatar_url,face_indexed_at,rekognition_face_id"
         ).eq("id", current_user.user_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your account", code="ACCOUNT_FETCH_FAILED", status=500) from exc
@@ -173,8 +172,8 @@ def get_public_user_record(current_user: AuthenticatedUser) -> PublicUserRecord:
                 "email": current_user.email or current_user.raw_user.get("email") or "",
                 "name": auth_name,
                 "avatar_url": auth_avatar_url,
-                "face_profile_completed": False,
-                "face_profile_updated_at": None,
+                "face_indexed_at": None,
+                "rekognition_face_id": None,
             }
         ).execute()
     except Exception as exc:
@@ -185,8 +184,8 @@ def get_public_user_record(current_user: AuthenticatedUser) -> PublicUserRecord:
         email=current_user.email or current_user.raw_user.get("email") or "",
         name=auth_name,
         avatar_url=auth_avatar_url,
-        face_profile_completed=False,
-        face_profile_updated_at=None,
+        face_indexed_at=None,
+        rekognition_face_id=None,
     )
 
 

@@ -45,7 +45,7 @@ def get_my_photos(current_user: AuthenticatedUser, *, event_id: str) -> MyPhotos
     return MyPhotosResponse(
         photos=[_map_matched_photo(match, photo) for match, photo in matched_photos],
         downloadAllUrl=download_url,
-        hasFaceProfile=public_user.face_profile_completed,
+        hasFaceProfile=public_user.has_face_profile,
     )
 
 
@@ -190,7 +190,7 @@ def _get_photos_by_ids(photo_ids: Iterable[str]) -> dict[str, PhotoRecord]:
 def _get_public_user_by_id(user_id: str):
     try:
         response = get_supabase_admin_client().table("users").select(
-            "id,email,name,avatar_url,face_profile_completed,face_profile_updated_at"
+            "id,email,name,avatar_url,face_indexed_at,rekognition_face_id"
         ).eq("id", user_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load the shared gallery owner", code="USER_FETCH_FAILED", status=500) from exc

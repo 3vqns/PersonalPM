@@ -300,7 +300,7 @@ def join_event(
         except Exception as exc:
             raise AppError("PictureMe could not join this event", code="EVENT_JOIN_FAILED", status=500) from exc
 
-    if public_user.face_profile_completed:
+    if public_user.has_face_profile:
         background_tasks.add_task(
             trigger_user_event_match,
             user_id=current_user.user_id,
@@ -374,8 +374,8 @@ def _map_account_user(user: PublicUserRecord) -> AccountUserResponse:
         email=user.email,
         name=user.name,
         avatarUrl=user.avatar_url,
-        hasFaceProfile=user.face_profile_completed,
-        faceIndexedAt=user.face_profile_updated_at,
+        hasFaceProfile=user.has_face_profile,
+        faceIndexedAt=user.face_indexed_at,
     )
 
 
@@ -551,7 +551,7 @@ def _get_public_users_by_ids(user_ids: list[str]) -> list[PublicUserRecord]:
 
     try:
         response = get_supabase_admin_client().table("users").select(
-            "id,email,name,avatar_url,face_profile_completed,face_profile_updated_at"
+            "id,email,name,avatar_url,face_indexed_at,rekognition_face_id"
         ).in_("id", user_ids).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load user records", code="USER_FETCH_FAILED", status=500) from exc

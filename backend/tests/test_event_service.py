@@ -113,8 +113,8 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
             email=current_user.email or "",
             name="User One",
             avatar_url=None,
-            face_profile_completed=True,
-            face_profile_updated_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+            face_indexed_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+            rekognition_face_id=None,
         ),
     )
     monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
@@ -147,8 +147,8 @@ def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
             email=current_user.email or "",
             name="User One",
             avatar_url=None,
-            face_profile_completed=False,
-            face_profile_updated_at=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
         ),
     )
     monkeypatch.setattr(

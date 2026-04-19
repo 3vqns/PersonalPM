@@ -13,7 +13,7 @@ class AccountUserResponse(BaseModel):
     name: str
     avatar_url: str | None = Field(default=None, alias="avatarUrl")
     has_face_profile: bool = Field(alias="hasFaceProfile")
-    face_profile_updated_at: datetime | None = Field(default=None, alias="faceIndexedAt")
+    face_indexed_at: datetime | None = Field(default=None, alias="faceIndexedAt")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -48,8 +48,12 @@ class PublicUserRecord(BaseModel):
     email: str
     name: str
     avatar_url: str | None = None
-    face_profile_completed: bool = False
-    face_profile_updated_at: datetime | None = None
+    face_indexed_at: datetime | None = None
+    rekognition_face_id: str | None = None
+
+    @property
+    def has_face_profile(self) -> bool:
+        return self.face_indexed_at is not None or self.rekognition_face_id is not None
 
 
 class FaceProfileImageRecord(BaseModel):

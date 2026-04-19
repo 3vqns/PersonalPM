@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Supabase
     supabase_url: str = Field(min_length=1)
-    supabase_service_role_key: SecretStr | None = None
+    supabase_service_role_key: SecretStr
     face_profile_bucket: str = "face-profile-images"
 
     # AWS
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     @property
     def supabase_service_role_key_value(self) -> str:
         """Return the raw Supabase service role key for backend-only use."""
-        return self._require_secret(self.supabase_service_role_key, "SUPABASE_SERVICE_ROLE_KEY")
+        return self.supabase_service_role_key.get_secret_value()
 
     @property
     def internal_api_secret_value(self) -> str:

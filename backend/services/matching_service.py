@@ -284,13 +284,17 @@ def _list_matchable_event_members(event_id: str) -> list[EventMemberRecord]:
 
     user_ids = [member.user_id for member in members]
     try:
-        users_response = get_supabase_admin_client().table("users").select("id,face_profile_completed").in_("id", user_ids).eq(
-            "face_profile_completed", True
-        ).execute()
+        users_response = get_supabase_admin_client().table("users").select(
+            "id,face_indexed_at,rekognition_face_id"
+        ).in_("id", user_ids).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load event member face profile state", code="USER_FETCH_FAILED", status=500) from exc
 
-    enabled_ids = {row["id"] for row in (users_response.data or []) if row.get("id")}
+    enabled_ids = {
+        row["id"]
+        for row in (users_response.data or [])
+        if row.get("id") and (row.get("face_indexed_at") is not None or row.get("rekognition_face_id") is not None)
+    }
     return [member for member in members if member.user_id in enabled_ids]
 
 
