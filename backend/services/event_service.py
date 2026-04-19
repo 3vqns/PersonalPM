@@ -29,6 +29,7 @@ from backend.schemas.event import (
     JoinPreviewResponse,
 )
 from backend.services.account_service import get_public_user_record
+from backend.services.matching_service import trigger_user_event_match
 
 logger = logging.getLogger("pictureme.events")
 
@@ -273,7 +274,12 @@ def join_event(
             raise AppError("PictureMe could not join this event", code="EVENT_JOIN_FAILED", status=500) from exc
 
     if public_user.face_profile_completed:
-        background_tasks.add_task(_run_match_kickoff_placeholder, current_user.user_id, event.id)
+        background_tasks.add_task(
+            trigger_user_event_match,
+            user_id=current_user.user_id,
+            event_id=event.id,
+            reason="event-join",
+        )
 
     return EventJoinResponse(eventId=event.id, alreadyJoined=already_joined, role=membership.role if membership else "member")
 
@@ -549,6 +555,3 @@ def _delete_rekognition_collection(collection_id: str, *, suppress_not_found: bo
             return
         raise AppError("PictureMe could not delete the event collection", code="REKOGNITION_DELETE_FAILED", status=502) from exc
 
-
-def _run_match_kickoff_placeholder(user_id: str, event_id: str) -> None:
-    logger.info("Queued placeholder join-match kickoff for user %s on event %s", user_id, event_id)

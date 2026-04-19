@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # AWS
     aws_region: str = "us-east-1"
     rekognition_collection_prefix: str = "pictureme-event"
+    matching_similarity_threshold: float = 80.0
+    matching_max_faces_per_selfie: int = 50
 
     # Cloudinary
     cloudinary_cloud_name: str = Field(min_length=1)

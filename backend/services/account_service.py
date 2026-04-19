@@ -8,7 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import UploadFile
+from fastapi import BackgroundTasks, UploadFile
 
 from backend.config import getSettings
 from backend.core.supabase_admin import get_supabase_admin_client
@@ -21,6 +21,7 @@ from backend.schemas.account import (
     FaceProfileStatusResponse,
     PublicUserRecord,
 )
+from backend.services.matching_service import trigger_user_active_event_rematch
 
 logger = logging.getLogger("pictureme.account")
 _ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
@@ -53,6 +54,7 @@ async def replace_face_profile(
     current_user: AuthenticatedUser,
     *,
     selfies: list[UploadFile],
+    background_tasks: BackgroundTasks | None = None,
 ) -> FaceProfileStatusResponse:
     """Store a fresh 3-5 selfie enrollment set and mark the face profile complete."""
     _validate_selfie_count(len(selfies))
@@ -87,7 +89,14 @@ async def replace_face_profile(
     if existing_assets:
         _delete_storage_paths([asset.storage_path for asset in existing_assets], suppress_errors=True)
 
-    _log_face_profile_match_hook(current_user.user_id, reason="face-profile-upsert")
+    if background_tasks is not None:
+        background_tasks.add_task(
+            trigger_user_active_event_rematch,
+            user_id=current_user.user_id,
+            reason="face-profile-upsert",
+        )
+    else:
+        trigger_user_active_event_rematch(user_id=current_user.user_id, reason="face-profile-upsert")
     return FaceProfileStatusResponse(hasFaceProfile=True, indexedAt=updated_at)
 
 
@@ -245,11 +254,6 @@ def _delete_storage_paths(paths: list[str], *, suppress_errors: bool = False) ->
             logger.warning("Failed to delete replaced face-profile assets", extra={"paths": paths})
             return
         raise AppError("PictureMe could not delete your enrollment selfies", code="SELFIE_DELETE_FAILED", status=500) from exc
-
-
-def _log_face_profile_match_hook(user_id: str, *, reason: str) -> None:
-    """Placeholder for the later async rematch pipeline."""
-    logger.info("Queued placeholder face-profile rematch hook for user %s (%s)", user_id, reason)
 
 
 def _resolve_display_name(current_user: AuthenticatedUser) -> str:

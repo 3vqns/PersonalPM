@@ -15,6 +15,7 @@ from backend.errors import AppError
 from backend.schemas.event import EventRecord, EventRole
 from backend.schemas.upload import StagedUploadFile, UploadJobFileRecord, UploadJobStartResponse
 from backend.services.cloudinary_service import upload_event_photo
+from backend.services.matching_service import trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
 from backend.services.upload_job_service import (
     create_upload_job,
@@ -101,7 +102,7 @@ def _process_upload_job(job_id: str, uploader_user_id: str, event: EventRecord, 
 
     progress = finalize_job(job_id)
     if progress.indexed_files > 0:
-        logger.info("Queued placeholder upload-match follow-up for event %s after job %s", event.id, job_id)
+        trigger_event_member_rematch(event_id=event.id, reason="photo-upload-batch")
 
 
 def _process_one_file(

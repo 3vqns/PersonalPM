@@ -1,6 +1,6 @@
 """Account and face-profile lifecycle routes."""
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 
 from backend.dependencies.auth import AuthenticatedUser, require_authenticated_user
 from backend.errors import AppError
@@ -37,13 +37,14 @@ async def patch_account_profile(
 
 @router.post("/face-profile", response_model=FaceProfileStatusResponse)
 async def post_face_profile(
+    background_tasks: BackgroundTasks,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
     selfies: list[UploadFile] | None = File(default=None),
     face: list[UploadFile] | None = File(default=None),
 ) -> FaceProfileStatusResponse:
     """Upload and replace the authenticated user's reusable enrollment selfies."""
     uploads = [*(selfies or []), *(face or [])]
-    return await replace_face_profile(current_user, selfies=uploads)
+    return await replace_face_profile(current_user, selfies=uploads, background_tasks=background_tasks)
 
 
 @router.delete("/face-profile", response_model=FaceProfileStatusResponse)
