@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks, UploadFile
 
 from backend.config import getSettings
 from backend.core.supabase_admin import get_supabase_admin_client
+from backend.core.supabase_response import get_first_row
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord, EventRole
@@ -182,11 +183,15 @@ def _insert_photo_row(event_id: str, uploader_user_id: str, upload_result: dict)
                 "thumbnail_url": upload_result["thumbnail_url"],
                 "face_count": 0,
             }
-        ).select("id").single().execute()
+        ).execute()
     except Exception as exc:
         raise AppError("PictureMe could not create the photo record", code="PHOTO_CREATE_FAILED", status=500) from exc
 
-    return response.data["id"]
+    created_photo = get_first_row(response.data)
+    photo_id = created_photo.get("id") if created_photo else None
+    if not photo_id:
+        raise AppError("PictureMe could not create the photo record", code="PHOTO_CREATE_FAILED", status=500)
+    return str(photo_id)
 
 
 def _insert_face_index_rows(event_id: str, photo_id: str, face_records: Iterable[dict]) -> None:

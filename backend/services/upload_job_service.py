@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from backend.core.supabase_admin import get_supabase_admin_client
+from backend.core.supabase_response import get_first_row
 from backend.errors import AppError
 from backend.schemas.upload import (
     StagedUploadFile,
@@ -33,11 +34,14 @@ def create_upload_job(*, event_id: str, created_by: str, files: list[StagedUploa
                 "status": "queued",
                 "started_at": now,
             }
-        ).select("*").single().execute()
+        ).execute()
     except Exception as exc:
         raise AppError("PictureMe could not create the upload job", code="UPLOAD_JOB_CREATE_FAILED", status=500) from exc
 
-    job = UploadJobRecord.model_validate(job_response.data)
+    created_job = get_first_row(job_response.data)
+    if not created_job:
+        raise AppError("PictureMe could not create the upload job", code="UPLOAD_JOB_CREATE_FAILED", status=500)
+    job = UploadJobRecord.model_validate(created_job)
     file_rows = [
         {
             "job_id": job.id,

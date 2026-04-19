@@ -12,6 +12,7 @@ from backend.config import getSettings
 from backend.core.retry import run_with_retries
 from backend.core.rekognition import get_rekognition_client
 from backend.core.supabase_admin import get_supabase_admin_client
+from backend.core.supabase_response import get_first_row
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.account import AccountUserResponse, PublicUserRecord
@@ -101,8 +102,11 @@ async def create_event(
                 "rekognition_collection_id": collection_id,
                 "status": "active",
             }
-        ).select("id").single().execute()
-        event_id = response.data["id"]
+        ).execute()
+        created_event = get_first_row(response.data)
+        if not created_event or not created_event.get("id"):
+            raise AppError("PictureMe could not create the event", code="EVENT_CREATE_FAILED", status=500)
+        event_id = str(created_event["id"])
         client.table("event_members").upsert(
             {
                 "event_id": event_id,

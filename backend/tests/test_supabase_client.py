@@ -19,3 +19,4 @@ def test_create_supabase_server_client_accepts_secret_key() -> None:
     )
 
     assert client.supabase_key == "sb_secret_abcdefghijklmnopqrstuvwxyz1234567890"
+    assert client.options.headers["Authorization"] == "Bearer sb_secret_abcdefghijklmnopqrstuvwxyz1234567890"

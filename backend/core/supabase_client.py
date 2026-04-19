@@ -35,7 +35,7 @@ class _ServerSyncClient(SyncClient):
 
         super().__init__(supabase_url, _coerce_key_for_parent_validation(supabase_key), options)
         self.supabase_key = supabase_key
-        self.options.headers.update(self._get_auth_headers())
+        self.options.headers.update(self._get_auth_headers(self._create_auth_header(supabase_key)))
 
 
 def create_supabase_server_client(supabase_url: str, supabase_key: str) -> SyncClient:
