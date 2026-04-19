@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("APP_ORIGIN", "VITE_API_BASE_URL"),
     )
     frontend_origin: str = "http://localhost:5173"
+    frontend_origin_regex: str | None = r"https://personal-pm-frontend.*\.vercel\.app"
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
 
     # Supabase
@@ -75,6 +76,11 @@ class Settings(BaseSettings):
             "frontendOrigin": self.frontend_origin,
             "googleOAuthEnabled": self.google_oauth_enabled,
         }
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        """Return the explicit origins allowed to call the backend from browsers."""
+        return list(dict.fromkeys([self.frontend_origin.rstrip("/"), self.app_origin.rstrip("/")]))
 
     def _require_str(self, value: str | None, env_name: str) -> str:
         """Return a required string setting or fail with a clear env var message."""
