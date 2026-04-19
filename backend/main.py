@@ -1,12 +1,10 @@
 """FastAPI application setup, middleware, error handlers, route mounting, and local entrypoint."""
-
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import getSettings
 from backend.errors import register_error_handlers
-from backend.logging import configure_logging, log_requests
+from backend.app_logging import configure_logging, log_requests
 from backend.routes.account import router as account_router
 from backend.routes.events import router as event_router
 from backend.routes.gallery import router as gallery_router
@@ -54,6 +52,8 @@ app.include_router(internal_router)
 # --- Local entrypoint -----------------------------------------------------
 
 def _run() -> None:
+    import uvicorn
+
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",

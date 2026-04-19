@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # Supabase
     supabase_url: str = Field(min_length=1)
-    supabase_service_role_key: SecretStr
+    supabase_service_role_key: SecretStr | None = None
     face_profile_bucket: str = "face-profile-images"
 
     # AWS
@@ -38,9 +38,9 @@ class Settings(BaseSettings):
     matching_max_faces_per_selfie: int = Field(default=50, ge=1, le=4096)
 
     # Cloudinary
-    cloudinary_cloud_name: str = Field(min_length=1)
-    cloudinary_api_key: SecretStr
-    cloudinary_api_secret: SecretStr
+    cloudinary_cloud_name: str | None = Field(default=None, min_length=1)
+    cloudinary_api_key: SecretStr | None = None
+    cloudinary_api_secret: SecretStr | None = None
     event_photo_folder: str = "pictureme/events"
     external_retry_attempts: int = Field(default=3, ge=1, le=10)
     external_retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
@@ -69,10 +69,22 @@ class Settings(BaseSettings):
             "googleOAuthEnabled": self.google_oauth_enabled,
         }
 
+    def _require_str(self, value: str | None, env_name: str) -> str:
+        """Return a required string setting or fail with a clear env var message."""
+        if value:
+            return value
+        raise RuntimeError(f"Missing required environment variable: {env_name}")
+
+    def _require_secret(self, value: SecretStr | None, env_name: str) -> str:
+        """Return a required secret setting or fail with a clear env var message."""
+        if value is not None:
+            return value.get_secret_value()
+        raise RuntimeError(f"Missing required environment variable: {env_name}")
+
     @property
     def supabase_service_role_key_value(self) -> str:
         """Return the raw Supabase service role key for backend-only use."""
-        return self.supabase_service_role_key.get_secret_value()
+        return self._require_secret(self.supabase_service_role_key, "SUPABASE_SERVICE_ROLE_KEY")
 
     @property
     def internal_api_secret_value(self) -> str:
@@ -80,14 +92,19 @@ class Settings(BaseSettings):
         return self.internal_api_secret.get_secret_value()
 
     @property
+    def cloudinary_cloud_name_value(self) -> str:
+        """Return the raw Cloudinary cloud name for backend-only use."""
+        return self._require_str(self.cloudinary_cloud_name, "CLOUDINARY_CLOUD_NAME")
+
+    @property
     def cloudinary_api_key_value(self) -> str:
         """Return the raw Cloudinary API key for backend-only use."""
-        return self.cloudinary_api_key.get_secret_value()
+        return self._require_secret(self.cloudinary_api_key, "CLOUDINARY_API_KEY")
 
     @property
     def cloudinary_api_secret_value(self) -> str:
         """Return the raw Cloudinary API secret for backend-only use."""
-        return self.cloudinary_api_secret.get_secret_value()
+        return self._require_secret(self.cloudinary_api_secret, "CLOUDINARY_API_SECRET")
 
 
 @lru_cache
