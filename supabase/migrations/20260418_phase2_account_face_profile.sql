@@ -1,40 +1,18 @@
 -- Phase 2 account and face-profile lifecycle schema updates.
 -- Run this after the base PictureMe schema exists.
 
-create extension if not exists pgcrypto;
+alter table public.users
+  add column if not exists face_indexed_at timestamptz null;
 
 alter table public.users
-  add column if not exists face_profile_completed boolean not null default false;
-
-do $$
-begin
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'users'
-      and column_name = 'face_indexed_at'
-  ) then
-    execute 'alter table public.users rename column face_indexed_at to face_profile_updated_at';
-  end if;
-end $$;
-
-alter table public.users
-  add column if not exists face_profile_updated_at timestamptz null;
-
-alter table public.users
-  drop column if exists rekognition_face_id;
+  add column if not exists rekognition_face_id text null;
 
 create table if not exists public.face_profile_images (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   user_id uuid not null references public.users(id) on delete cascade,
-  storage_bucket text not null,
-  storage_path text not null unique,
-  content_type text not null,
-  byte_size bigint not null check (byte_size > 0),
-  sort_order integer not null check (sort_order between 1 and 5),
-  created_at timestamptz not null default timezone('utc', now()),
-  unique (user_id, sort_order)
+  storage_path text not null,
+  sort_order integer not null default 1,
+  created_at timestamptz not null default now()
 );
 
 create index if not exists face_profile_images_user_id_idx

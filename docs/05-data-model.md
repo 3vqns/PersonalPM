@@ -9,8 +9,8 @@
 | `email` | text | Unique |
 | `name` | text | Display name |
 | `avatar_url` | text | Optional profile photo |
-| `face_profile_completed` | boolean | Whether enrollment selfies exist |
-| `face_profile_updated_at` | timestamp | When enrollment was last updated |
+| `face_indexed_at` | timestamp | When the current face profile was last stored |
+| `rekognition_face_id` | text | Optional user-level face identifier |
 | `created_at` | timestamp | |
 
 ### `face_profile_images`

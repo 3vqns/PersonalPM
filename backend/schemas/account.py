@@ -65,9 +65,6 @@ class FaceProfileImageRecord(BaseModel):
     storage_path: str
     sort_order: int
     created_at: datetime | None = None
-    storage_bucket: str | None = None
-    content_type: str | None = None
-    byte_size: int | None = None
 
     @property
     def inferred_content_type(self) -> str | None:
@@ -80,4 +77,4 @@ class FaceProfileImageRecord(BaseModel):
             return "image/webp"
         if extension in {".heic", ".heif"}:
             return "image/heic"
-        return self.content_type
+        return None
