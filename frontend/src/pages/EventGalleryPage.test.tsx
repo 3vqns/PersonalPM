@@ -93,9 +93,7 @@ describe("EventGalleryPage", () => {
     expect(supabase.channel).toHaveBeenCalled();
   });
 
-  it("creates and shows a public gallery share panel", async () => {
-    const user = userEvent.setup();
-
+  it("shows a public gallery share panel for my photos", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -169,9 +167,6 @@ describe("EventGalleryPage", () => {
     );
 
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Share gallery" }));
-
     expect(await screen.findByText("Share these photos instantly")).toBeInTheDocument();
     expect(screen.getByText("Gallery link")).toBeInTheDocument();
     expect(screen.getByText("https://example.com/gallery/gallery-token")).toBeInTheDocument();

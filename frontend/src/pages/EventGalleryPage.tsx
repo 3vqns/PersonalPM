@@ -178,17 +178,46 @@ export function EventGalleryPage() {
     searchParams.get("created") === "1" && event?.role === "creator";
   const showDenied = searchParams.get("denied") === "1";
 
-  async function handleShareGallery() {
-    if (galleryShareUrl) {
+  useEffect(() => {
+    if (
+      activeTab !== "my" ||
+      !id ||
+      !hasFaceProfile ||
+      myPhotos.length === 0 ||
+      galleryShareUrl
+    ) {
       return;
     }
 
-    const response = await apiFetch<ShareGalleryTokenResponse>("/api/gallery-tokens", {
-      method: "POST",
-      body: { eventId: id },
-    });
-    setGalleryShareUrl(response.url);
-  }
+    let cancelled = false;
+
+    async function loadGalleryShareUrl() {
+      try {
+        const response = await apiFetch<ShareGalleryTokenResponse>("/api/gallery-tokens", {
+          method: "POST",
+          body: { eventId: id },
+        });
+
+        if (!cancelled) {
+          setGalleryShareUrl(response.url);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "PictureMe could not create a gallery share link.",
+          );
+        }
+      }
+    }
+
+    void loadGalleryShareUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, galleryShareUrl, hasFaceProfile, id, myPhotos.length]);
 
   async function handleDeletePhoto(photo: Photo) {
     const confirmed = window.confirm(
@@ -335,13 +364,6 @@ export function EventGalleryPage() {
 
               {activeTab === "my" ? (
                 <div className="flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void handleShareGallery()}
-                  >
-                    Share gallery
-                  </button>
                   {downloadAllUrl ? (
                     <a
                       className="primary-button"
