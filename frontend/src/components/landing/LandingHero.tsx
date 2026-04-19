@@ -95,14 +95,7 @@ export function LandingHero() {
                 transition={{ duration: 0.6, delay: 0.5 }}
                 className="col-span-2 aspect-[4/3] overflow-hidden rounded-2xl bg-gradient-to-br from-coffee-200 to-coffee-300 shadow-2xl"
               >
-                <div className="flex h-full w-full items-center justify-center bg-coffee-700/20">
-                  <div className="p-8 text-center">
-                    <ImageIcon className="mx-auto mb-4 h-16 w-16 text-coffee-600" />
-                    <p className="font-medium text-coffee-700">
-                      Event Gallery Preview
-                    </p>
-                  </div>
-                </div>
+                <img src="/Pic1.WebP" alt="Event preview" className="h-full w-full object-cover" />
               </motion.div>
 
               <motion.div
@@ -111,7 +104,7 @@ export function LandingHero() {
                 transition={{ duration: 0.6, delay: 0.7 }}
                 className="flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-coffee-100 to-coffee-200 shadow-lg"
               >
-                <Users className="h-10 w-10 text-coffee-500" />
+                <img src="/Pic2.WebP" alt="Users enjoying event" className="h-full w-full object-cover" />
               </motion.div>
 
               <motion.div
@@ -120,7 +113,7 @@ export function LandingHero() {
                 transition={{ duration: 0.6, delay: 0.8 }}
                 className="flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 shadow-lg"
               >
-                <Sparkles className="h-10 w-10 text-primary" />
+                <img src="/Pic3.WebP" alt="Event highlights" className="h-full w-full object-cover" />
               </motion.div>
             </div>
 

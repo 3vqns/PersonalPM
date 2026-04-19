@@ -119,7 +119,11 @@ export function LandingGalleryPreview() {
                     className="group aspect-square cursor-pointer overflow-hidden rounded-xl bg-gradient-to-br from-coffee-100 to-coffee-200 transition-all hover:ring-2 hover:ring-primary hover:ring-offset-2"
                   >
                     <div className="relative flex h-full w-full items-center justify-center">
-                      <ImageIcon className="h-8 w-8 text-coffee-400 transition-transform group-hover:scale-110" />
+                      <img
+                        src={`/Pic${(photo.id % 10) + 1}.WebP`}
+                        alt="Gallery sample"
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
                       {photo.matched ? (
                         <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary">
                           <User className="h-3 w-3 text-primary-foreground" />
