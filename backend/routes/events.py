@@ -14,6 +14,7 @@ from backend.schemas.event import (
     EventUpdateRequest,
     JoinPreviewResponse,
 )
+from backend.schemas.upload import UploadJobStartResponse
 from backend.services.event_service import (
     create_event,
     delete_event,
@@ -25,6 +26,7 @@ from backend.services.event_service import (
     update_event,
     update_event_member_role,
 )
+from backend.services.photo_upload_service import start_event_upload_batch
 
 router = APIRouter(tags=["events"])
 
@@ -120,3 +122,19 @@ async def patch_event_member_role(
 ) -> dict[str, bool]:
     """Update a member role. Only the creator may do this."""
     return update_event_member_role(current_user, event_id=event_id, member_user_id=user_id, role=payload.role)
+
+
+@router.post("/api/events/{event_id}/photos", response_model=UploadJobStartResponse)
+async def post_event_photos(
+    event_id: str,
+    background_tasks: BackgroundTasks,
+    photos: list[UploadFile] = File(...),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> UploadJobStartResponse:
+    """Accept an admin upload batch and process it asynchronously."""
+    return await start_event_upload_batch(
+        current_user,
+        event_id=event_id,
+        files=photos,
+        background_tasks=background_tasks,
+    )

@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     rekognition_collection_prefix: str = "pictureme-event"
 
+    # Cloudinary
+    cloudinary_cloud_name: str = Field(min_length=1)
+    cloudinary_api_key: SecretStr
+    cloudinary_api_secret: SecretStr
+    event_photo_folder: str = "pictureme/events"
+
+    # Uploads
+    max_event_photo_size_bytes: int = 15 * 1024 * 1024
+
     # Internal
     internal_api_secret: SecretStr
 
@@ -60,6 +69,16 @@ class Settings(BaseSettings):
     def internal_api_secret_value(self) -> str:
         """Return the raw internal API secret for backend-only use."""
         return self.internal_api_secret.get_secret_value()
+
+    @property
+    def cloudinary_api_key_value(self) -> str:
+        """Return the raw Cloudinary API key for backend-only use."""
+        return self.cloudinary_api_key.get_secret_value()
+
+    @property
+    def cloudinary_api_secret_value(self) -> str:
+        """Return the raw Cloudinary API secret for backend-only use."""
+        return self.cloudinary_api_secret.get_secret_value()
 
 
 @lru_cache
