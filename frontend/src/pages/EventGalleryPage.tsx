@@ -48,6 +48,7 @@ export function EventGalleryPage() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [galleryShareUrl, setGalleryShareUrl] = useState<string | null>(null);
+  const [galleryShareError, setGalleryShareError] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     const response = await apiFetch<EventDetail>(`/api/events/${id}`);
@@ -187,6 +188,9 @@ export function EventGalleryPage() {
 
     async function loadGalleryShareUrl() {
       try {
+        if (!cancelled) {
+          setGalleryShareError(null);
+        }
         const response = await apiFetch<ShareGalleryTokenResponse>("/api/gallery-tokens", {
           method: "POST",
           body: { eventId: id },
@@ -196,7 +200,7 @@ export function EventGalleryPage() {
         }
       } catch (requestError) {
         if (!cancelled) {
-          setError(
+          setGalleryShareError(
             requestError instanceof Error
               ? requestError.message
               : "PictureMe could not create a personal gallery share link.",
@@ -375,17 +379,23 @@ export function EventGalleryPage() {
               )}
             </div>
 
-            {activeTab === "my" && myPhotos.length > 0 && galleryShareUrl ? (
-              <ShareEventPanel
-                eventName={event.name}
-                shareUrl={galleryShareUrl}
-                eyebrow="Share gallery"
-                title="Share your photos instantly"
-                description="Scan the QR code or send the gallery link so anyone can view only your matched photos without creating an account."
-                linkLabel="Gallery link"
-                copyLabel="Copy gallery link"
-                downloadLabel="Download gallery QR"
-              />
+            {activeTab === "my" && myPhotos.length > 0 ? (
+              galleryShareUrl ? (
+                <ShareEventPanel
+                  eventName={event.name}
+                  shareUrl={galleryShareUrl}
+                  eyebrow="Share gallery"
+                  title="Share your photos instantly"
+                  description="Scan the QR code or send the gallery link so anyone can view only your matched photos without creating an account."
+                  linkLabel="Gallery link"
+                  copyLabel="Copy gallery link"
+                  downloadLabel="Download gallery QR"
+                />
+              ) : galleryShareError ? (
+                <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  {galleryShareError}
+                </div>
+              ) : null
             ) : null}
 
             {activeTab === "all" ? (
