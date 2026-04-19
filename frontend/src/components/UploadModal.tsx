@@ -47,8 +47,18 @@ export function UploadModal({
     );
   }, [progress]);
 
+  function isSupportedUpload(file: File) {
+    const lowerName = file.name.toLowerCase();
+    return (
+      file.type.startsWith("image/") ||
+      file.type === "application/zip" ||
+      file.type === "application/x-zip-compressed" ||
+      lowerName.endsWith(".zip")
+    );
+  }
+
   function updateFiles(nextFiles: File[]) {
-    setFiles(nextFiles.filter((file) => file.type.startsWith("image/")));
+    setFiles(nextFiles.filter(isSupportedUpload));
     setError(null);
   }
 
@@ -166,16 +176,16 @@ export function UploadModal({
           <UploadCloud className="h-8 w-8 text-seafoam-500" />
           <div>
             <p className="font-medium text-ink">
-              Drag JPG, PNG, or HEIC files here
+              Drag JPG, PNG, WebP, or ZIP files here
             </p>
             <p className="text-sm text-slate">
-              Or tap to browse your camera roll or desktop
+              Or tap to browse your camera roll, desktop, or a zipped batch
             </p>
           </div>
           <input
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/png,image/heic"
+            accept="image/jpeg,image/png,image/webp,.zip,application/zip,application/x-zip-compressed"
             multiple
             className="hidden"
             onChange={(event) => updateFiles(Array.from(event.target.files ?? []))}
@@ -185,7 +195,7 @@ export function UploadModal({
         {files.length ? (
           <div className="rounded-3xl bg-ivory/70 p-4">
             <p className="font-medium text-ink">
-              {files.length} photo{files.length === 1 ? "" : "s"} ready
+              {files.length} file{files.length === 1 ? "" : "s"} ready
             </p>
             <ul className="mt-3 space-y-2 text-sm text-slate">
               {files.slice(0, 5).map((file) => (

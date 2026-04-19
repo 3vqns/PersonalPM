@@ -76,6 +76,7 @@ export interface Photo {
   id: string;
   cloudinaryUrl: string;
   thumbnailUrl?: string;
+  originalFilename?: string;
   uploadedAt: string;
   faceCount: number;
 }

@@ -10,6 +10,9 @@ export function normalizePhoto(record: Record<string, unknown>): Photo {
     thumbnailUrl:
       readOptionalString(record, "thumbnailUrl") ??
       readOptionalString(record, "thumbnail_url"),
+    originalFilename:
+      readOptionalString(record, "originalFilename") ??
+      readOptionalString(record, "original_filename"),
     uploadedAt:
       readString(record, "uploadedAt") ||
       readString(record, "uploaded_at") ||

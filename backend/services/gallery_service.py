@@ -146,7 +146,7 @@ def _require_event_membership(user_id: str, event: EventRecord) -> None:
 def _list_event_photos(event_id: str) -> list[PhotoRecord]:
     try:
         response = get_supabase_admin_client().table("photos").select(
-            "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+            "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this gallery", code="GALLERY_FETCH_FAILED", status=500) from exc
@@ -175,7 +175,7 @@ def _get_photos_by_ids(photo_ids: Iterable[str]) -> dict[str, PhotoRecord]:
 
     try:
         response = get_supabase_admin_client().table("photos").select(
-            "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+            "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).in_("id", photo_id_list).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load gallery photo records", code="PHOTO_FETCH_FAILED", status=500) from exc
@@ -215,6 +215,7 @@ def _map_photo(photo: PhotoRecord) -> PhotoResponse:
         id=photo.id,
         cloudinaryUrl=photo.cloudinary_url,
         thumbnailUrl=photo.thumbnail_url,
+        originalFilename=photo.original_filename,
         uploadedAt=photo.uploaded_at,
         faceCount=photo.face_count,
     )
@@ -225,6 +226,7 @@ def _map_matched_photo(match: UserPhotoMatchRecord, photo: PhotoRecord) -> Match
         id=photo.id,
         cloudinaryUrl=photo.cloudinary_url,
         thumbnailUrl=photo.thumbnail_url,
+        originalFilename=photo.original_filename,
         uploadedAt=photo.uploaded_at,
         faceCount=photo.face_count,
         matchedAt=match.matched_at,

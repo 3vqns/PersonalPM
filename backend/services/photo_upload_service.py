@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+from io import BytesIO
+from pathlib import Path
 from typing import Iterable
 from uuid import uuid4
+from zipfile import BadZipFile, ZipFile
 
 from fastapi import BackgroundTasks, UploadFile
 
@@ -15,12 +18,19 @@ from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord, EventRole
 from backend.schemas.upload import StagedUploadFile, UploadJobStartResponse
-from backend.services.cloudinary_service import upload_event_photo
+from backend.services.cloudinary_service import delete_event_photo_assets, upload_event_photo
 from backend.services.matching_service import trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
 
 logger = logging.getLogger("pictureme.uploads")
 _ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_ALLOWED_UPLOAD_EXTENSIONS = {
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
+_ZIP_UPLOAD_TYPES = {"application/zip", "application/x-zip-compressed", "multipart/x-zip"}
 
 
 async def start_event_upload_batch(
@@ -42,7 +52,7 @@ async def start_event_upload_batch(
             details={"maxFiles": getSettings().max_event_upload_batch_files, "received": len(files)},
         )
 
-    staged_files = await _stage_upload_files(files)
+    staged_files = await _stage_upload_files(event.id, files)
     if not staged_files:
         raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
 
@@ -55,42 +65,45 @@ async def start_event_upload_batch(
     return UploadJobStartResponse(jobId=job_id)
 
 
-async def _stage_upload_files(files: list[UploadFile]) -> list[StagedUploadFile]:
+async def _stage_upload_files(event_id: str, files: list[UploadFile]) -> list[StagedUploadFile]:
     settings = getSettings()
     staged_files: list[StagedUploadFile] = []
+    seen_filenames = _existing_filename_keys(event_id)
 
     for upload in files:
-        filename = (upload.filename or "").strip()
-        if not filename:
-            raise AppError("Each uploaded photo needs a filename", code="INVALID_UPLOAD", status=422)
-        if upload.content_type not in _ALLOWED_UPLOAD_TYPES:
-            raise AppError(
-                "Event photo uploads must be JPEG, PNG, or WebP images",
-                code="INVALID_UPLOAD_TYPE",
-                status=422,
-                details={"fileName": upload.filename, "contentType": upload.content_type},
-            )
-
+        upload_filename = _clean_filename(upload.filename)
         content = await upload.read()
-        byte_size = len(content)
-        if byte_size == 0:
-            raise AppError("Uploaded photos cannot be empty", code="INVALID_UPLOAD", status=422, details={"fileName": upload.filename})
-        if byte_size > settings.max_event_photo_size_bytes:
-            raise AppError(
-                "One or more files exceed the event photo size limit",
-                code="UPLOAD_TOO_LARGE",
-                status=422,
-                details={"fileName": upload.filename, "maxBytes": settings.max_event_photo_size_bytes, "receivedBytes": byte_size},
+
+        if _is_zip_upload(upload_filename, upload.content_type):
+            if len(content) > settings.max_event_upload_archive_size_bytes:
+                raise AppError(
+                    "One or more zip uploads exceed the archive size limit",
+                    code="UPLOAD_TOO_LARGE",
+                    status=422,
+                    details={
+                        "fileName": upload.filename,
+                        "maxBytes": settings.max_event_upload_archive_size_bytes,
+                        "receivedBytes": len(content),
+                    },
+                )
+            staged_files.extend(_stage_zip_upload(upload_filename, content, seen_filenames))
+        else:
+            staged_files.append(
+                _stage_image_file(
+                    upload_filename,
+                    upload.content_type,
+                    content,
+                    seen_filenames,
+                )
             )
 
-        staged_files.append(
-            StagedUploadFile(
-                file_name=filename or f"photo-{uuid4().hex}.jpg",
-                content_type=upload.content_type or "image/jpeg",
-                byte_size=byte_size,
-                content=content,
+        if len(staged_files) > settings.max_event_upload_batch_files:
+            raise AppError(
+                "Too many photos were submitted in one batch",
+                code="UPLOAD_BATCH_TOO_LARGE",
+                status=422,
+                details={"maxFiles": settings.max_event_upload_batch_files, "received": len(staged_files)},
             )
-        )
 
     return staged_files
 
@@ -142,6 +155,7 @@ def _process_one_file(
 
     try:
         upload_result = upload_event_photo(event_id=event.id, file_name=staged_file.file_name, content=staged_file.content)
+        upload_result["original_filename"] = staged_file.file_name
         photo_id = _insert_photo_row(event.id, uploader_user_id, upload_result)
         face_records = index_event_photo(collection_id=event.rekognition_collection_id, photo_id=photo_id, content=staged_file.content)
         _insert_face_index_rows(event.id, photo_id, face_records)
@@ -173,6 +187,7 @@ def _insert_photo_row(event_id: str, uploader_user_id: str, upload_result: dict)
             {
                 "event_id": event_id,
                 "uploaded_by": uploader_user_id,
+                "original_filename": upload_result["original_filename"],
                 "cloudinary_url": upload_result["cloudinary_url"],
                 "cloudinary_id": upload_result["public_id"],
                 "thumbnail_url": upload_result["thumbnail_url"],
@@ -239,3 +254,157 @@ def _require_upload_access(user_id: str, event_id: str) -> tuple[EventRecord, Ev
         raise AppError("Only event admins and creators can upload photos", code="FORBIDDEN", status=403)
 
     return event, "admin"
+
+
+def delete_event_photo(current_user: AuthenticatedUser, *, event_id: str, photo_id: str) -> dict[str, bool]:
+    """Delete one event photo and its dependent rows. Admins and creators may do this."""
+    _require_upload_access(current_user.user_id, event_id)
+    photo = _get_event_photo_or_404(event_id, photo_id)
+
+    if photo.get("cloudinary_id"):
+        delete_event_photo_assets(public_ids=[photo["cloudinary_id"]])
+
+    client = get_supabase_admin_client()
+    try:
+        client.table("user_photo_matches").delete().eq("photo_id", photo_id).execute()
+        client.table("face_index").delete().eq("photo_id", photo_id).execute()
+        client.table("photos").delete().eq("id", photo_id).eq("event_id", event_id).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not delete this photo", code="PHOTO_DELETE_FAILED", status=500) from exc
+
+    return {"success": True}
+
+
+def _get_event_photo_or_404(event_id: str, photo_id: str) -> dict:
+    try:
+        response = get_supabase_admin_client().table("photos").select(
+            "id,event_id,cloudinary_id,original_filename"
+        ).eq("id", photo_id).eq("event_id", event_id).maybe_single().execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not load this photo", code="PHOTO_FETCH_FAILED", status=500) from exc
+
+    if not response.data:
+        raise AppError("Photo not found", code="PHOTO_NOT_FOUND", status=404)
+    return response.data
+
+
+def _existing_filename_keys(event_id: str) -> set[str]:
+    try:
+        response = get_supabase_admin_client().table("photos").select("original_filename").eq("event_id", event_id).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not verify duplicate filenames", code="PHOTO_FETCH_FAILED", status=500) from exc
+
+    return {
+        _filename_key(row["original_filename"])
+        for row in (response.data or [])
+        if isinstance(row.get("original_filename"), str) and row["original_filename"].strip()
+    }
+
+
+def _stage_zip_upload(zip_filename: str, content: bytes, seen_filenames: set[str]) -> list[StagedUploadFile]:
+    staged_files: list[StagedUploadFile] = []
+    try:
+        archive = ZipFile(BytesIO(content))
+    except BadZipFile as exc:
+        raise AppError(
+            "Zip uploads must contain a valid archive",
+            code="INVALID_UPLOAD",
+            status=422,
+            details={"fileName": zip_filename},
+        ) from exc
+
+    with archive:
+        for entry in archive.infolist():
+            if entry.is_dir():
+                continue
+
+            entry_name = _clean_filename(entry.filename)
+            if not entry_name or entry_name.startswith("."):
+                continue
+
+            staged_files.append(
+                _stage_image_file(
+                    entry_name,
+                    _content_type_for_filename(entry_name),
+                    archive.read(entry),
+                    seen_filenames,
+                )
+            )
+
+    if not staged_files:
+        raise AppError(
+            "Zip uploads must contain at least one JPG, PNG, or WebP image",
+            code="INVALID_UPLOAD_TYPE",
+            status=422,
+            details={"fileName": zip_filename},
+        )
+
+    return staged_files
+
+
+def _stage_image_file(
+    filename: str,
+    content_type: str | None,
+    content: bytes,
+    seen_filenames: set[str],
+) -> StagedUploadFile:
+    settings = getSettings()
+    if not filename:
+        raise AppError("Each uploaded photo needs a filename", code="INVALID_UPLOAD", status=422)
+
+    normalized_content_type = content_type or _content_type_for_filename(filename)
+    if normalized_content_type not in _ALLOWED_UPLOAD_TYPES:
+        raise AppError(
+            "Event photo uploads must be JPEG, PNG, or WebP images",
+            code="INVALID_UPLOAD_TYPE",
+            status=422,
+            details={"fileName": filename, "contentType": normalized_content_type or None},
+        )
+
+    byte_size = len(content)
+    if byte_size == 0:
+        raise AppError("Uploaded photos cannot be empty", code="INVALID_UPLOAD", status=422, details={"fileName": filename})
+    if byte_size > settings.max_event_photo_size_bytes:
+        raise AppError(
+            "One or more files exceed the event photo size limit",
+            code="UPLOAD_TOO_LARGE",
+            status=422,
+            details={"fileName": filename, "maxBytes": settings.max_event_photo_size_bytes, "receivedBytes": byte_size},
+        )
+
+    _ensure_unique_filename(filename, seen_filenames)
+    return StagedUploadFile(
+        file_name=filename,
+        content_type=normalized_content_type,
+        byte_size=byte_size,
+        content=content,
+    )
+
+
+def _ensure_unique_filename(filename: str, seen_filenames: set[str]) -> None:
+    normalized = _filename_key(filename)
+    if normalized in seen_filenames:
+        raise AppError(
+            "Duplicate filenames are not allowed in the same event gallery",
+            code="DUPLICATE_UPLOAD_FILENAME",
+            status=409,
+            details={"fileName": filename},
+        )
+    seen_filenames.add(normalized)
+
+
+def _clean_filename(filename: str | None) -> str:
+    normalized = Path((filename or "").replace("\\", "/")).name.strip()
+    return normalized
+
+
+def _filename_key(filename: str) -> str:
+    return filename.strip().casefold()
+
+
+def _content_type_for_filename(filename: str) -> str | None:
+    return _ALLOWED_UPLOAD_EXTENSIONS.get(Path(filename).suffix.casefold())
+
+
+def _is_zip_upload(filename: str, content_type: str | None) -> bool:
+    return Path(filename).suffix.casefold() == ".zip" or (content_type or "").casefold() in _ZIP_UPLOAD_TYPES

@@ -70,7 +70,8 @@ class Settings(BaseSettings):
     max_account_avatar_size_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
     max_event_cover_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     max_event_photo_size_bytes: int = Field(default=15 * 1024 * 1024, gt=0)
-    max_event_upload_batch_files: int = Field(default=50, ge=1, le=500)
+    max_event_upload_archive_size_bytes: int = Field(default=250 * 1024 * 1024, gt=0)
+    max_event_upload_batch_files: int = Field(default=250, ge=1, le=2000)
     max_face_profile_selfie_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
     # Internal

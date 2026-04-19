@@ -119,6 +119,28 @@ export function EventGalleryPage() {
           void loadEvent();
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "photos",
+          filter: `event_id=eq.${id}`,
+        },
+        (payload) => {
+          const deletedId =
+            typeof payload.old === "object" && payload.old && "id" in payload.old
+              ? String(payload.old.id)
+              : null;
+          if (!deletedId) {
+            return;
+          }
+
+          setAllPhotos((current) => current.filter((photo) => photo.id !== deletedId));
+          setMyPhotos((current) => current.filter((photo) => photo.id !== deletedId));
+          void loadEvent();
+        },
+      )
       .subscribe();
 
     const matchChannel = user
@@ -174,6 +196,30 @@ export function EventGalleryPage() {
     await navigator.clipboard.writeText(response.url);
     setGalleryCopied(true);
     window.setTimeout(() => setGalleryCopied(false), 1500);
+  }
+
+  async function handleDeletePhoto(photo: Photo) {
+    const confirmed = window.confirm(
+      `Delete ${photo.originalFilename ?? "this photo"} from the event gallery?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/events/${id}/photos/${photo.id}`, {
+        method: "DELETE",
+      });
+      setAllPhotos((current) => current.filter((item) => item.id !== photo.id));
+      setMyPhotos((current) => current.filter((item) => item.id !== photo.id));
+      void loadEvent();
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "PictureMe could not delete this photo.",
+      );
+    }
   }
 
   if (loading) {
@@ -355,6 +401,8 @@ export function EventGalleryPage() {
             ) : (
               <PhotoGrid
                 photos={allPhotos}
+                canDelete={event.role === "creator" || event.role === "admin"}
+                onDelete={(photo) => void handleDeletePhoto(photo)}
                 onSelect={(index) => {
                   setLightboxIndex(index);
                   setLightboxSource("all");

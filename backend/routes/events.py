@@ -26,7 +26,7 @@ from backend.services.event_service import (
     update_event,
     update_event_member_role,
 )
-from backend.services.photo_upload_service import start_event_upload_batch
+from backend.services.photo_upload_service import delete_event_photo, start_event_upload_batch
 
 router = APIRouter(tags=["events"])
 
@@ -141,3 +141,13 @@ async def post_event_photos(
         files=photos,
         background_tasks=background_tasks,
     )
+
+
+@router.delete("/api/events/{event_id}/photos/{photo_id}")
+async def remove_event_photo(
+    event_id: str,
+    photo_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> dict[str, bool]:
+    """Delete one event photo. Admins and creators may do this."""
+    return delete_event_photo(current_user, event_id=event_id, photo_id=photo_id)
