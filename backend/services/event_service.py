@@ -472,13 +472,14 @@ def _get_membership(event_id: str, user_id: str) -> EventMemberRecord | None:
     try:
         response = get_supabase_admin_client().table("event_members").select(
             "id,event_id,user_id,role,joined_at"
-        ).eq("event_id", event_id).eq("user_id", user_id).maybe_single().execute()
+        ).eq("event_id", event_id).eq("user_id", user_id).limit(1).execute()
     except Exception as exc:
         raise AppError("PictureMe could not verify event access", code="EVENT_ACCESS_FAILED", status=500) from exc
 
-    if not response.data:
+    rows = response.data or []
+    if not rows:
         return None
-    return EventMemberRecord.model_validate(response.data)
+    return EventMemberRecord.model_validate(rows[0])
 
 
 def _membership_exists(event_id: str, user_id: str) -> bool:

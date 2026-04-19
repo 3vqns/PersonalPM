@@ -62,6 +62,9 @@ class _FakeTable:
     def single(self):
         return self
 
+    def limit(self, _count: int):
+        return self
+
     def execute(self):
         if self.name == "events" and self.client.inserted_event_payloads:
             return SimpleNamespace(data={"id": "event-1"})
@@ -248,3 +251,27 @@ def test_create_event_ignores_empty_cover_upload(monkeypatch) -> None:
     assert upload_called is False
     assert client.inserted_event_payloads
     assert client.updated_event_payloads == []
+
+
+def test_get_membership_returns_none_when_no_membership_row(monkeypatch) -> None:
+    class _NoMembershipTable:
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, _key: str, _value: str):
+            return self
+
+        def limit(self, _count: int):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
+    class _NoMembershipClient:
+        def table(self, name: str):
+            assert name == "event_members"
+            return _NoMembershipTable()
+
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _NoMembershipClient())
+
+    assert event_service._get_membership("event-1", "user-1") is None
