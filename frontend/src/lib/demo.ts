@@ -145,6 +145,21 @@ export async function getDemoApiResponse<T>(
           hostName: demoUser.name,
           photoCount: demoPhotos.length,
           memberCount: demoEvent.counts.members,
+          memberPreviews: [
+            {
+              id: demoUser.id,
+              name: demoUser.name,
+              avatarUrl: demoUser.avatarUrl,
+            },
+            {
+              id: "demo-admin",
+              name: "Avery Chen",
+            },
+            {
+              id: "demo-member",
+              name: "Maya Patel",
+            },
+          ],
           myPhotosCount: 2,
           daysRemaining: 21,
           status: "active",
@@ -159,6 +174,21 @@ export async function getDemoApiResponse<T>(
           hostName: "Avery Chen",
           photoCount: 84,
           memberCount: 180,
+          memberPreviews: [
+            {
+              id: "demo-admin",
+              name: "Avery Chen",
+            },
+            {
+              id: demoUser.id,
+              name: demoUser.name,
+              avatarUrl: demoUser.avatarUrl,
+            },
+            {
+              id: "demo-member",
+              name: "Maya Patel",
+            },
+          ],
           myPhotosCount: 7,
           daysRemaining: 30,
           status: "active",

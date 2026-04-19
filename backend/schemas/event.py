@@ -19,6 +19,16 @@ class CreatorSummary(BaseModel):
     name: str
 
 
+class EventMemberPreviewResponse(BaseModel):
+    """Compact event-member payload for dashboard avatar stacks."""
+
+    id: str
+    name: str
+    avatar_url: str | None = Field(default=None, alias="avatarUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class EventSummaryResponse(BaseModel):
     """Dashboard event card payload."""
 
@@ -29,6 +39,7 @@ class EventSummaryResponse(BaseModel):
     host_name: str | None = Field(default=None, alias="hostName")
     photo_count: int = Field(alias="photoCount")
     member_count: int = Field(alias="memberCount")
+    member_previews: list[EventMemberPreviewResponse] = Field(default_factory=list, alias="memberPreviews")
     my_photos_count: int | None = Field(default=None, alias="myPhotosCount")
     days_remaining: int = Field(alias="daysRemaining")
     status: EventStatus

@@ -23,6 +23,7 @@ from backend.schemas.event import (
     EventDetailResponse,
     EventJoinResponse,
     EventMemberRecord,
+    EventMemberPreviewResponse,
     EventMemberResponse,
     EventRecord,
     EventRole,
@@ -329,6 +330,7 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
     event_ids = [event.id for event in events]
     photo_counts = _count_rows_by_event("photos", event_ids)
     member_counts = _count_rows_by_event("event_members", event_ids)
+    member_previews = _get_member_previews_by_event(event_ids)
     match_counts = _count_rows_by_event("user_photo_matches", event_ids, {"user_id": user_id})
     roles = _get_event_roles(event_ids, user_id)
     creator_ids = {event.creator_id for event in events}
@@ -347,6 +349,7 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
                 hostName=creator.name if creator else "PictureMe Host",
                 photoCount=photo_counts.get(event.id, 0),
                 memberCount=member_counts.get(event.id, 0),
+                memberPreviews=member_previews.get(event.id, []),
                 myPhotosCount=match_counts.get(event.id, 0),
                 daysRemaining=_get_days_remaining(event.expires_at),
                 status=event.status,
@@ -518,6 +521,50 @@ def _get_event_roles(event_ids: list[str], user_id: str) -> dict[str, EventRole]
         for row in rows
         if row.get("event_id") and row.get("role") in {"creator", "admin", "member"}
     }
+
+
+def _get_member_previews_by_event(event_ids: list[str]) -> dict[str, list[EventMemberPreviewResponse]]:
+    if not event_ids:
+        return {}
+
+    try:
+        response = get_supabase_admin_client().table("event_members").select("event_id,user_id,joined_at").in_(
+            "event_id", event_ids
+        ).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not load event members", code="MEMBERS_FETCH_FAILED", status=500) from exc
+
+    rows = [
+        row
+        for row in (response.data or [])
+        if row.get("event_id") and row.get("user_id")
+    ]
+    rows.sort(key=lambda row: (str(row["event_id"]), str(row.get("joined_at") or "")))
+
+    user_ids = list({str(row["user_id"]) for row in rows})
+    users_by_id = {user.id: user for user in _get_public_users_by_ids(user_ids)}
+
+    previews_by_event: dict[str, list[EventMemberPreviewResponse]] = {}
+    for row in rows:
+        event_id = str(row["event_id"])
+        user_id = str(row["user_id"])
+        user = users_by_id.get(user_id)
+        if user is None:
+            continue
+
+        event_previews = previews_by_event.setdefault(event_id, [])
+        if len(event_previews) >= 3 or any(preview.id == user.id for preview in event_previews):
+            continue
+
+        event_previews.append(
+            EventMemberPreviewResponse(
+                id=user.id,
+                name=user.name,
+                avatarUrl=user.avatar_url,
+            )
+        )
+
+    return previews_by_event
 
 
 def _count_rows(table: str, filters: dict[str, str]) -> int:

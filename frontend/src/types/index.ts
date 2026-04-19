@@ -26,6 +26,11 @@ export interface EventSummary {
   hostName?: string;
   photoCount: number;
   memberCount: number;
+  memberPreviews: Array<{
+    id: string;
+    name: string;
+    avatarUrl?: string;
+  }>;
   myPhotosCount?: number;
   daysRemaining: number;
   status: EventStatus;

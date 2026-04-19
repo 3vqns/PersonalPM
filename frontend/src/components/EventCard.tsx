@@ -33,7 +33,7 @@ export function EventCard({
   onToggleFavorite,
 }: EventCardProps) {
   const newPhotoCount = getNewPhotoCount(event);
-  const attendeeBadges = getAttendeeBadges(event);
+  const attendeePreviews = getAttendeePreviews(event);
   const venueLabel = getVenueLabel(category);
 
   return (
@@ -102,16 +102,25 @@ export function EventCard({
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center">
             <div className="flex items-center">
-              {attendeeBadges.map((label, index) => (
+              {attendeePreviews.map((member, index) => (
                 <div
-                  key={`${event.id}-${label}-${index}`}
+                  key={`${event.id}-${member.id}-${index}`}
                   className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-full border-2 border-white text-xs font-semibold shadow-sm",
+                    "flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white text-xs font-semibold shadow-sm",
                     index > 0 && "-ml-3",
                     avatarShells[index % avatarShells.length],
                   )}
+                  title={member.name}
                 >
-                  {getInitials(label)}
+                  {member.avatarUrl ? (
+                    <img
+                      src={member.avatarUrl}
+                      alt={member.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    getInitials(member.name)
+                  )}
                 </div>
               ))}
             </div>
@@ -154,14 +163,21 @@ function getNewPhotoCount(event: EventSummary) {
   return Math.min(8, Math.max(1, Math.round(event.photoCount / 18)));
 }
 
-function getAttendeeBadges(event: EventSummary) {
-  const badges = [
-    event.hostName ?? "PictureMe host",
-    event.role === "creator" ? "Host" : "Guest",
-    `${event.memberCount} members`,
-  ];
+function getAttendeePreviews(event: EventSummary) {
+  const memberPreviews = Array.isArray(event.memberPreviews)
+    ? event.memberPreviews
+    : [];
 
-  return badges.slice(0, 3);
+  if (memberPreviews.length > 0) {
+    return memberPreviews.slice(0, 3);
+  }
+
+  return [
+    {
+      id: `${event.id}-host`,
+      name: event.hostName ?? "PictureMe host",
+    },
+  ];
 }
 
 function getVenueLabel(category: string) {
