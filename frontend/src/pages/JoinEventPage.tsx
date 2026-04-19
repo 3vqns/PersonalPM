@@ -1,5 +1,5 @@
 import { AlertCircle, ArrowRight, CalendarDays, Images, Users } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FaceScanCapture } from "../components/FaceScanCapture";
 import { GoogleAuthButton } from "../components/GoogleAuthButton";
@@ -16,6 +16,7 @@ export function JoinEventPage() {
   const { token = "" } = useParams();
   const navigate = useNavigate();
   const { session, loading: authLoading, refreshSession } = useAuth();
+  const autoJoinAttemptedRef = useRef(false);
   const [preview, setPreview] = useState<JoinPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"signup" | "login">("signup");
@@ -33,6 +34,10 @@ export function JoinEventPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    autoJoinAttemptedRef.current = false;
+  }, [token]);
+
+  useEffect(() => {
     async function loadPreview() {
       setLoading(true);
       try {
@@ -40,6 +45,7 @@ export function JoinEventPage() {
           auth: "optional",
         });
         setPreview(response);
+        setError(null);
       } catch (requestError) {
         setError(
           requestError instanceof Error
@@ -54,15 +60,59 @@ export function JoinEventPage() {
     void loadPreview();
   }, [token, session]);
 
+  useEffect(() => {
+    if (
+      authLoading ||
+      loading ||
+      !session ||
+      !preview ||
+      preview.status !== "active" ||
+      phase !== "auth" ||
+      submitting ||
+      autoJoinAttemptedRef.current
+    ) {
+      return;
+    }
+
+    autoJoinAttemptedRef.current = true;
+
+    if (preview.alreadyJoined) {
+      navigate(`/event/${preview.id}`, { replace: true });
+      return;
+    }
+
+    void (async () => {
+      try {
+        await handleJoin();
+      } catch {
+        autoJoinAttemptedRef.current = false;
+      }
+    })();
+  }, [authLoading, loading, navigate, phase, preview, session, submitting]);
+
   async function handleJoin() {
     if (!preview) {
       return;
     }
 
-    await apiFetch(`/api/events/${preview.id}/join`, {
-      method: "POST",
-    });
-    navigate(`/event/${preview.id}`, { replace: true });
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await apiFetch(`/api/events/${preview.id}/join`, {
+        method: "POST",
+      });
+      navigate(`/event/${preview.id}`, { replace: true });
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "PictureMe could not join this event.",
+      );
+      throw requestError;
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handleInlineSignup(event: FormEvent<HTMLFormElement>) {
@@ -138,7 +188,7 @@ export function JoinEventPage() {
     );
   }
 
-  if (error || !preview) {
+  if (!preview) {
     return (
       <div className="page-shell max-w-2xl">
         <div className="surface-card flex gap-3 p-6">
@@ -207,15 +257,25 @@ export function JoinEventPage() {
             ) : session ? (
               <div className="space-y-4">
                 <p className="text-sm leading-6 text-slate">
-                  You&apos;re signed in. Join the event to open My Photos and the
-                  full gallery.
+                  {submitting
+                    ? "Adding you to this event now..."
+                    : "You&apos;re signed in. PictureMe will add you to this event automatically."}
                 </p>
                 <button
                   type="button"
                   className="primary-button w-full"
-                  onClick={() => void (preview.alreadyJoined ? navigate(`/event/${preview.id}`) : handleJoin())}
+                  onClick={() =>
+                    void (preview.alreadyJoined
+                      ? navigate(`/event/${preview.id}`)
+                      : handleJoin())
+                  }
+                  disabled={submitting}
                 >
-                  {preview.alreadyJoined ? "Go to gallery" : "Join event"}
+                  {preview.alreadyJoined
+                    ? "Opening gallery"
+                    : submitting
+                      ? "Joining event..."
+                      : "Join event"}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </button>
               </div>

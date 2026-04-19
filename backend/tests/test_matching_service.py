@@ -27,20 +27,14 @@ def test_collect_best_photo_scores_deduplicates_across_selfies_and_faces(monkeyp
         FaceProfileImageRecord(
             id="selfie-1",
             user_id="user-1",
-            storage_bucket="bucket",
             storage_path="users/user-1/face-profile/01.jpg",
-            content_type="image/jpeg",
-            byte_size=128,
             sort_order=1,
             created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
         ),
         FaceProfileImageRecord(
             id="selfie-2",
             user_id="user-1",
-            storage_bucket="bucket",
             storage_path="users/user-1/face-profile/02.jpg",
-            content_type="image/jpeg",
-            byte_size=256,
             sort_order=2,
             created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
         ),
@@ -67,4 +61,3 @@ def test_collect_best_photo_scores_deduplicates_across_selfies_and_faces(monkeyp
     result = matching_service._collect_best_photo_scores(event=event, selfie_assets=selfies)
 
     assert result == {"photo-a": 90.0, "photo-b": 95.0}
-

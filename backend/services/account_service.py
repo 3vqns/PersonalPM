@@ -193,9 +193,9 @@ def _list_face_profile_images(user_id: str) -> list[FaceProfileImageRecord]:
     """Fetch the current stored enrollment selfie metadata for a user."""
     client = get_supabase_admin_client()
     try:
-        response = client.table("face_profile_images").select(
-            "id,user_id,storage_bucket,storage_path,content_type,byte_size,sort_order,created_at"
-        ).eq("user_id", user_id).order("sort_order").execute()
+        response = client.table("face_profile_images").select("id,user_id,storage_path,sort_order,created_at").eq(
+            "user_id", user_id
+        ).order("sort_order").execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your face profile", code="FACE_PROFILE_FETCH_FAILED", status=500) from exc
 
@@ -238,10 +238,7 @@ async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order
 
     return {
         "user_id": user_id,
-        "storage_bucket": settings.face_profile_bucket,
         "storage_path": path,
-        "content_type": content_type,
-        "byte_size": len(content),
         "sort_order": sort_order,
     }
 

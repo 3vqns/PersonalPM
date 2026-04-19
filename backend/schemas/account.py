@@ -1,6 +1,7 @@
 """Account and face-profile request/response models."""
 
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,9 +62,22 @@ class FaceProfileImageRecord(BaseModel):
 
     id: str
     user_id: str
-    storage_bucket: str
     storage_path: str
-    content_type: str
-    byte_size: int
     sort_order: int
-    created_at: datetime
+    created_at: datetime | None = None
+    storage_bucket: str | None = None
+    content_type: str | None = None
+    byte_size: int | None = None
+
+    @property
+    def inferred_content_type(self) -> str | None:
+        extension = Path(self.storage_path).suffix.lower()
+        if extension in {".jpg", ".jpeg"}:
+            return "image/jpeg"
+        if extension == ".png":
+            return "image/png"
+        if extension == ".webp":
+            return "image/webp"
+        if extension in {".heic", ".heif"}:
+            return "image/heic"
+        return self.content_type

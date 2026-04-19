@@ -186,7 +186,7 @@ def _persist_user_photo_matches(*, user_id: str, event_id: str, best_photo_score
 
 def _download_face_profile_image(asset: FaceProfileImageRecord) -> bytes:
     try:
-        return get_supabase_admin_client().storage.from_(asset.storage_bucket).download(asset.storage_path)
+        return get_supabase_admin_client().storage.from_(getSettings().face_profile_bucket).download(asset.storage_path)
     except Exception as exc:
         raise AppError("PictureMe could not download an enrollment selfie", code="SELFIE_DOWNLOAD_FAILED", status=500) from exc
 
@@ -256,14 +256,14 @@ def _map_face_ids_to_photo_ids(face_ids: Iterable[str], event_id: str) -> dict[s
 
 def _list_matchable_face_profile_images(user_id: str) -> list[FaceProfileImageRecord]:
     try:
-        response = get_supabase_admin_client().table("face_profile_images").select(
-            "id,user_id,storage_bucket,storage_path,content_type,byte_size,sort_order,created_at"
-        ).eq("user_id", user_id).order("sort_order").execute()
+        response = get_supabase_admin_client().table("face_profile_images").select("id,user_id,storage_path,sort_order,created_at").eq(
+            "user_id", user_id
+        ).order("sort_order").execute()
     except Exception as exc:
         raise AppError("PictureMe could not load enrollment selfies", code="FACE_PROFILE_FETCH_FAILED", status=500) from exc
 
     rows = [FaceProfileImageRecord.model_validate(row) for row in (response.data or [])]
-    supported_rows = [row for row in rows if row.content_type in _MATCHABLE_SELFIE_TYPES]
+    supported_rows = [row for row in rows if row.inferred_content_type in _MATCHABLE_SELFIE_TYPES]
     skipped = len(rows) - len(supported_rows)
     if skipped:
         logger.warning("Skipping %s enrollment selfies for user %s because SearchFacesByImage only supports JPEG/PNG inputs", skipped, user_id)

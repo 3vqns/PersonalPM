@@ -196,7 +196,7 @@ export function UploadModal({
           </div>
         ) : null}
 
-        {progress ? (
+        {isDemo && progress ? (
           <div className="space-y-3 rounded-3xl border border-ink/10 p-4">
             <div className="flex items-center justify-between">
               <p className="font-medium text-ink">
@@ -257,11 +257,11 @@ export function UploadModal({
             disabled={
               submitting ||
               !files.length ||
-              progress?.status === "completed" ||
+              (isDemo && progress?.status === "completed") ||
               uploadStarted
             }
           >
-            {progress?.status === "completed"
+            {isDemo && progress?.status === "completed"
               ? "Indexed"
               : uploadStarted
                 ? "Processing"
