@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -36,9 +36,7 @@ export function LandingHeader() {
       <nav className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="flex h-20 items-center justify-between">
           <Link to="/" className="group flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary transition-transform group-hover:scale-105">
-              <Camera className="h-5 w-5 text-primary-foreground" />
-            </div>
+            <img src="/PictureMeLogo.svg" alt="PictureMe Logo" className="h-14 w-14 sm:h-16 sm:w-16 object-contain transition-transform group-hover:scale-105" />
             <span className="text-xl font-semibold tracking-tight text-foreground">
               PictureMe
             </span>

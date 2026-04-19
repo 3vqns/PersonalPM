@@ -1,6 +1,5 @@
 import {
   Bell,
-  Camera,
   ChevronDown,
   LayoutDashboard,
   LogOut,
@@ -26,9 +25,7 @@ export function Navbar() {
     <header className="sticky top-0 z-40 border-b border-white/60 bg-ivory/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
         <Link to="/" className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-ink text-white shadow-card">
-            <Camera className="h-5 w-5" />
-          </div>
+          <img src="/PictureMeLogo.svg" alt="PictureMe Logo" className="h-14 w-14 sm:h-16 sm:w-16 object-contain" />
           <div>
             <p className="text-lg font-semibold text-ink">PictureMe</p>
             <p className="text-xs uppercase tracking-[0.28em] text-slate">
