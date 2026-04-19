@@ -182,20 +182,27 @@ def _process_one_file(
 
 
 def _insert_photo_row(event_id: str, uploader_user_id: str, upload_result: dict) -> str:
+    client = get_supabase_admin_client()
+    payload = {
+        "event_id": event_id,
+        "uploaded_by": uploader_user_id,
+        "original_filename": upload_result["original_filename"],
+        "cloudinary_url": upload_result["cloudinary_url"],
+        "cloudinary_id": upload_result["public_id"],
+        "thumbnail_url": upload_result["thumbnail_url"],
+        "face_count": 0,
+    }
     try:
-        response = get_supabase_admin_client().table("photos").insert(
-            {
-                "event_id": event_id,
-                "uploaded_by": uploader_user_id,
-                "original_filename": upload_result["original_filename"],
-                "cloudinary_url": upload_result["cloudinary_url"],
-                "cloudinary_id": upload_result["public_id"],
-                "thumbnail_url": upload_result["thumbnail_url"],
-                "face_count": 0,
-            }
-        ).execute()
+        response = client.table("photos").insert(payload).execute()
     except Exception as exc:
-        raise AppError("PictureMe could not create the photo record", code="PHOTO_CREATE_FAILED", status=500) from exc
+        if not _is_missing_original_filename_column(exc):
+            raise AppError("PictureMe could not create the photo record", code="PHOTO_CREATE_FAILED", status=500) from exc
+
+        fallback_payload = {key: value for key, value in payload.items() if key != "original_filename"}
+        try:
+            response = client.table("photos").insert(fallback_payload).execute()
+        except Exception as retry_exc:
+            raise AppError("PictureMe could not create the photo record", code="PHOTO_CREATE_FAILED", status=500) from retry_exc
 
     created_photo = get_first_row(response.data)
     photo_id = created_photo.get("id") if created_photo else None
@@ -276,12 +283,21 @@ def delete_event_photo(current_user: AuthenticatedUser, *, event_id: str, photo_
 
 
 def _get_event_photo_or_404(event_id: str, photo_id: str) -> dict:
+    client = get_supabase_admin_client()
     try:
-        response = get_supabase_admin_client().table("photos").select(
+        response = client.table("photos").select(
             "id,event_id,cloudinary_id,original_filename"
         ).eq("id", photo_id).eq("event_id", event_id).maybe_single().execute()
     except Exception as exc:
-        raise AppError("PictureMe could not load this photo", code="PHOTO_FETCH_FAILED", status=500) from exc
+        if not _is_missing_original_filename_column(exc):
+            raise AppError("PictureMe could not load this photo", code="PHOTO_FETCH_FAILED", status=500) from exc
+
+        try:
+            response = client.table("photos").select(
+                "id,event_id,cloudinary_id"
+            ).eq("id", photo_id).eq("event_id", event_id).maybe_single().execute()
+        except Exception as retry_exc:
+            raise AppError("PictureMe could not load this photo", code="PHOTO_FETCH_FAILED", status=500) from retry_exc
 
     if not response.data:
         raise AppError("Photo not found", code="PHOTO_NOT_FOUND", status=404)
@@ -289,10 +305,13 @@ def _get_event_photo_or_404(event_id: str, photo_id: str) -> dict:
 
 
 def _existing_filename_keys(event_id: str) -> set[str]:
+    client = get_supabase_admin_client()
     try:
-        response = get_supabase_admin_client().table("photos").select("original_filename").eq("event_id", event_id).execute()
+        response = client.table("photos").select("original_filename").eq("event_id", event_id).execute()
     except Exception as exc:
-        raise AppError("PictureMe could not verify duplicate filenames", code="PHOTO_FETCH_FAILED", status=500) from exc
+        if not _is_missing_original_filename_column(exc):
+            raise AppError("PictureMe could not verify duplicate filenames", code="PHOTO_FETCH_FAILED", status=500) from exc
+        return set()
 
     return {
         _filename_key(row["original_filename"])
@@ -408,3 +427,10 @@ def _content_type_for_filename(filename: str) -> str | None:
 
 def _is_zip_upload(filename: str, content_type: str | None) -> bool:
     return Path(filename).suffix.casefold() == ".zip" or (content_type or "").casefold() in _ZIP_UPLOAD_TYPES
+
+
+def _is_missing_original_filename_column(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return "original_filename" in message and (
+        "column" in message or "schema cache" in message or "pgrst" in message
+    )

@@ -173,3 +173,59 @@ def test_gallery_token_creation_rejects_expired_events(monkeypatch) -> None:
         gallery_service.create_or_reuse_gallery_token(current_user, event_id=expired_event.id)
 
     assert exc_info.value.code == "EVENT_EXPIRED"
+
+
+def test_list_event_photos_falls_back_when_original_filename_column_is_missing(monkeypatch) -> None:
+    class _Query:
+        def __init__(self, client) -> None:
+            self.client = client
+            self.selected = ""
+
+        def select(self, selected: str):
+            self.selected = selected
+            return self
+
+        def eq(self, _key: str, _value: str):
+            return self
+
+        def order(self, _key: str, desc: bool = False):
+            return self
+
+        def execute(self):
+            self.client.calls.append(self.selected)
+            if "original_filename" in self.selected:
+                raise Exception("column photos.original_filename does not exist")
+            return type(
+                "Response",
+                (),
+                {
+                    "data": [
+                        {
+                            "id": "photo-1",
+                            "event_id": "event-1",
+                            "cloudinary_url": "https://example.com/photo.jpg",
+                            "thumbnail_url": "https://example.com/photo-thumb.jpg",
+                            "uploaded_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
+                            "face_count": 2,
+                        }
+                    ]
+                },
+            )()
+
+    class _Client:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def table(self, _name: str):
+            return _Query(self)
+
+    client = _Client()
+    monkeypatch.setattr(gallery_service, "get_supabase_admin_client", lambda: client)
+
+    photos = gallery_service._list_event_photos("event-1")
+
+    assert [photo.id for photo in photos] == ["photo-1"]
+    assert client.calls == [
+        "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count",
+        "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count",
+    ]

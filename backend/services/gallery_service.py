@@ -144,12 +144,21 @@ def _require_event_membership(user_id: str, event: EventRecord) -> None:
 
 
 def _list_event_photos(event_id: str) -> list[PhotoRecord]:
+    client = get_supabase_admin_client()
     try:
-        response = get_supabase_admin_client().table("photos").select(
+        response = client.table("photos").select(
             "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
     except Exception as exc:
-        raise AppError("PictureMe could not load this gallery", code="GALLERY_FETCH_FAILED", status=500) from exc
+        if not _is_missing_original_filename_column(exc):
+            raise AppError("PictureMe could not load this gallery", code="GALLERY_FETCH_FAILED", status=500) from exc
+
+        try:
+            response = client.table("photos").select(
+                "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+            ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
+        except Exception as retry_exc:
+            raise AppError("PictureMe could not load this gallery", code="GALLERY_FETCH_FAILED", status=500) from retry_exc
 
     return [_normalize_photo(row) for row in (response.data or []) if row.get("cloudinary_url")]
 
@@ -173,12 +182,21 @@ def _get_photos_by_ids(photo_ids: Iterable[str]) -> dict[str, PhotoRecord]:
     if not photo_id_list:
         return {}
 
+    client = get_supabase_admin_client()
     try:
-        response = get_supabase_admin_client().table("photos").select(
+        response = client.table("photos").select(
             "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).in_("id", photo_id_list).execute()
     except Exception as exc:
-        raise AppError("PictureMe could not load gallery photo records", code="PHOTO_FETCH_FAILED", status=500) from exc
+        if not _is_missing_original_filename_column(exc):
+            raise AppError("PictureMe could not load gallery photo records", code="PHOTO_FETCH_FAILED", status=500) from exc
+
+        try:
+            response = client.table("photos").select(
+                "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+            ).in_("id", photo_id_list).execute()
+        except Exception as retry_exc:
+            raise AppError("PictureMe could not load gallery photo records", code="PHOTO_FETCH_FAILED", status=500) from retry_exc
 
     return {
         photo.id: photo
@@ -231,4 +249,11 @@ def _map_matched_photo(match: UserPhotoMatchRecord, photo: PhotoRecord) -> Match
         faceCount=photo.face_count,
         matchedAt=match.matched_at,
         similarityScore=match.similarity_score,
+    )
+
+
+def _is_missing_original_filename_column(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return "original_filename" in message and (
+        "column" in message or "schema cache" in message or "pgrst" in message
     )
