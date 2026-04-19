@@ -108,12 +108,12 @@ export function DashboardPage() {
     ...data.createdEvents.map((event) => ({
       event,
       variant: "created" as const,
-      category: inferEventCategory(event),
+      category: (event.category as DashboardFilter) || inferEventCategory(event),
     })),
     ...data.joinedEvents.map((event) => ({
       event,
       variant: "joined" as const,
-      category: inferEventCategory(event),
+      category: (event.category as DashboardFilter) || inferEventCategory(event),
     })),
   ];
   const normalizedSearch = searchValue.trim().toLowerCase();
@@ -373,6 +373,7 @@ function CreateEventModal({
   const [form, setForm] = useState({
     name: "",
     date: "",
+    category: "Conferences",
     description: "",
     cover: null as File | null,
   });
@@ -387,6 +388,7 @@ function CreateEventModal({
     const formData = new FormData();
     formData.append("name", form.name);
     formData.append("date", form.date);
+    formData.append("category", form.category);
     if (form.description) {
       formData.append("description", form.description);
     }
@@ -440,6 +442,25 @@ function CreateEventModal({
               }
               required
             />
+          </div>
+        </label>
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-ink">Category</span>
+          <div className="field-shell">
+            <select
+              className="field-input appearance-none bg-transparent"
+              value={form.category}
+              onChange={(event) =>
+                setForm((value) => ({ ...value, category: event.target.value }))
+              }
+              required
+            >
+              <option value="Conferences">Conferences</option>
+              <option value="Weddings">Weddings</option>
+              <option value="Parties">Parties</option>
+              <option value="Sports">Sports</option>
+              <option value="Networking">Networking</option>
+            </select>
           </div>
         </label>
         <label className="block space-y-2">
