@@ -43,7 +43,6 @@ async def get_current_dashboard(
 async def post_event(
     name: str = Form(...),
     date: str = Form(...),
-    category: str | None = Form(default=None),
     description: str | None = Form(default=None),
     cover: UploadFile | None = File(default=None),
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
@@ -56,7 +55,6 @@ async def post_event(
         current_user,
         name=payload.name,
         date_value=payload.date,
-        category=category,
         description=payload.description,
         cover=cover,
     )

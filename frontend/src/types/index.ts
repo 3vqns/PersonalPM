@@ -34,7 +34,6 @@ export interface EventSummary {
   myPhotosCount?: number;
   daysRemaining: number;
   status: EventStatus;
-  category?: string;
   role: EventRole;
 }
 
@@ -45,7 +44,6 @@ export interface EventDetail {
   date: string;
   expiresAt: string;
   status: EventStatus;
-  category?: string;
   coverUrl?: string;
   joinToken: string;
   role: EventRole;

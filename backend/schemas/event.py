@@ -43,7 +43,6 @@ class EventSummaryResponse(BaseModel):
     my_photos_count: int | None = Field(default=None, alias="myPhotosCount")
     days_remaining: int = Field(alias="daysRemaining")
     status: EventStatus
-    category: str | None = None
     role: EventRole
 
     model_config = ConfigDict(populate_by_name=True)
@@ -78,7 +77,6 @@ class EventDetailResponse(BaseModel):
     date: calendar_date
     expires_at: datetime = Field(alias="expiresAt")
     status: EventStatus
-    category: str | None = None
     cover_url: str | None = Field(default=None, alias="coverUrl")
     join_token: str = Field(alias="joinToken")
     role: EventRole
@@ -161,7 +159,6 @@ class EventRecord(BaseModel):
     expires_at: datetime
     join_token: str
     rekognition_collection_id: str
-    category: str | None = None
     cover_url: str | None = None
     status: EventStatus
     created_at: datetime

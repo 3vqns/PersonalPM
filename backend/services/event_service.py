@@ -63,7 +63,6 @@ async def create_event(
     *,
     name: str,
     date_value: date,
-    category: str | None = None,
     description: str | None,
     cover: UploadFile | None = None,
 ) -> EventCreateResponse:
@@ -97,7 +96,6 @@ async def create_event(
             {
                 "creator_id": creator.id,
                 "name": cleaned_name,
-                "category": category,
                 "description": description.strip() if description else None,
                 "date": date_value.isoformat(),
                 "expires_at": expires_at.isoformat(),
@@ -355,7 +353,6 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
                 myPhotosCount=match_counts.get(event.id, 0),
                 daysRemaining=_get_days_remaining(event.expires_at),
                 status=event.status,
-                category=event.category,
                 role=role,
             )
         )
@@ -376,7 +373,6 @@ def _build_event_detail(
         date=event.date,
         expiresAt=event.expires_at,
         status=event.status,
-        category=event.category,
         coverUrl=event.cover_url,
         joinToken=event.join_token,
         role=role,
@@ -403,7 +399,7 @@ def _map_account_user(user: PublicUserRecord) -> AccountUserResponse:
 def _get_event_or_404(event_id: str) -> EventRecord:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,category,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -417,7 +413,7 @@ def _get_event_or_404(event_id: str) -> EventRecord:
 def _get_event_by_join_token(token: str) -> EventRecord:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,category,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
         ).eq("join_token", token).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event invite", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -431,7 +427,7 @@ def _get_event_by_join_token(token: str) -> EventRecord:
 def _list_events_by_creator(user_id: str) -> list[EventRecord]:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,category,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
         ).eq("creator_id", user_id).order("date", desc=True).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your dashboard", code="DASHBOARD_FETCH_FAILED", status=500) from exc
@@ -445,7 +441,7 @@ def _list_events_by_ids(event_ids: list[str]) -> list[EventRecord]:
 
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,category,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
         ).in_("id", event_ids).order("date", desc=True).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your dashboard", code="DASHBOARD_FETCH_FAILED", status=500) from exc
