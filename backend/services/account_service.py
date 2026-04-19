@@ -230,10 +230,15 @@ async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order
         get_supabase_admin_client().storage.from_(settings.face_profile_bucket).upload(
             path=path,
             file=content,
-            file_options={"content-type": content_type, "upsert": "false"},
+            file_options={"content-type": content_type},
         )
     except Exception as exc:
-        raise AppError("PictureMe could not store your enrollment selfie", code="SELFIE_UPLOAD_FAILED", status=500) from exc
+        raise AppError(
+            "PictureMe could not store your enrollment selfie",
+            code="SELFIE_UPLOAD_FAILED",
+            status=502,
+            details=_storage_error_details(exc),
+        ) from exc
 
     return {
         "user_id": user_id,
@@ -246,6 +251,19 @@ def _build_storage_path(user_id: str, sort_order: int, original_filename: str | 
     """Create a collision-resistant private storage path for a selfie asset."""
     extension = Path(original_filename or "selfie.jpg").suffix.lower() or ".jpg"
     return f"users/{user_id}/face-profile/{sort_order:02d}-{uuid4().hex}{extension}"
+
+
+def _storage_error_details(exc: Exception) -> dict[str, str | int]:
+    """Normalize upstream storage failures into stable API-safe error details."""
+    details = {
+        "provider": "supabase-storage",
+        "error": getattr(exc, "code", exc.__class__.__name__),
+        "message": getattr(exc, "message", str(exc)),
+    }
+    status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        details["providerStatus"] = status
+    return details
 
 
 def _clear_user_matches(user_id: str) -> None:
