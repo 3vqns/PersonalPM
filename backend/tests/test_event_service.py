@@ -78,8 +78,8 @@ class _FakeClient:
         return _FakeTable(_name, self)
 
 
-def _build_upload_file(name: str) -> UploadFile:
-    return UploadFile(filename=name, file=BytesIO(b"cover-bytes"), headers=Headers({"content-type": "image/jpeg"}))
+def _build_upload_file(name: str, content: bytes = b"cover-bytes") -> UploadFile:
+    return UploadFile(filename=name, file=BytesIO(content), headers=Headers({"content-type": "image/jpeg"}))
 
 
 def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
@@ -191,3 +191,60 @@ def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
             "event_id,user_id",
         )
     ]
+
+
+def test_create_event_ignores_empty_cover_upload(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    client = _FakeClient()
+    upload_called = False
+
+    monkeypatch.setattr(
+        event_service,
+        "get_public_user_record",
+        lambda _current_user: PublicUserRecord(
+            id=current_user.user_id,
+            email=current_user.email or "",
+            name="User One",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        event_service,
+        "getSettings",
+        lambda: SimpleNamespace(
+            rekognition_collection_prefix="pictureme-event",
+            external_retry_attempts=1,
+            external_retry_backoff_seconds=0.0,
+        ),
+    )
+    monkeypatch.setattr(event_service, "run_with_retries", lambda **_kwargs: None)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+
+    async def _unexpected_cover_upload(**_kwargs):
+        nonlocal upload_called
+        upload_called = True
+        return "https://cdn.example.com/event-cover.jpg"
+
+    monkeypatch.setattr(event_service, "upload_event_cover", _unexpected_cover_upload)
+
+    response = asyncio.run(
+        event_service.create_event(
+            current_user,
+            name="Launch Party",
+            date_value=date(2026, 4, 18),
+            description="Night one",
+            cover=_build_upload_file("cover.jpg", b""),
+        )
+    )
+
+    assert response.id == "event-1"
+    assert upload_called is False
+    assert client.inserted_event_payloads
+    assert client.updated_event_payloads == []

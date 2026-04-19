@@ -124,8 +124,8 @@ export function JoinEventPage() {
     }
   }
 
-  async function handleFaceCapture(image: Blob) {
-    await submitFaceScan(image);
+  async function handleFaceCapture(images: Blob[]) {
+    await submitFaceScan(images);
     await refreshSession();
     await handleJoin();
   }

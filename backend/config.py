@@ -34,6 +34,18 @@ class Settings(BaseSettings):
 
     # AWS
     aws_region: str = "us-east-1"
+    aws_access_key_id: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PICTUREME_AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY"),
+    )
+    aws_secret_access_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PICTUREME_AWS_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY"),
+    )
+    aws_session_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PICTUREME_AWS_SESSION_TOKEN", "AWS_SESSION_TOKEN"),
+    )
     rekognition_collection_prefix: str = "pictureme-event"
     aws_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     aws_read_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
@@ -118,6 +130,21 @@ class Settings(BaseSettings):
     def cloudinary_api_secret_value(self) -> str:
         """Return the raw Cloudinary API secret for backend-only use."""
         return self._require_secret(self.cloudinary_api_secret, "CLOUDINARY_API_SECRET")
+
+    @property
+    def aws_access_key_id_value(self) -> str | None:
+        """Return the AWS access key id when explicit credentials are configured."""
+        return self.aws_access_key_id.get_secret_value() if self.aws_access_key_id is not None else None
+
+    @property
+    def aws_secret_access_key_value(self) -> str | None:
+        """Return the AWS secret access key when explicit credentials are configured."""
+        return self.aws_secret_access_key.get_secret_value() if self.aws_secret_access_key is not None else None
+
+    @property
+    def aws_session_token_value(self) -> str | None:
+        """Return the AWS session token when explicit credentials are configured."""
+        return self.aws_session_token.get_secret_value() if self.aws_session_token is not None else None
 
 
 @lru_cache

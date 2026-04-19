@@ -15,8 +15,9 @@ import {
   getDemoUser,
   isDemoMode,
 } from "../lib/demo";
+import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
-import type { AuthUser } from "../types";
+import type { AccountResponse, AuthUser } from "../types";
 
 interface AuthContextValue {
   session: Session | null;
@@ -55,23 +56,13 @@ async function loadAuthUser(user: User | null) {
   }
 
   const fallbackUser = mapUser(user);
-  const { data, error } = await supabase
-    .from("users")
-    .select("id, email, name, avatar_url, face_indexed_at")
-    .eq("id", user.id)
-    .maybeSingle();
 
-  if (error || !data) {
+  try {
+    const response = await apiFetch<AccountResponse>("/api/account");
+    return response.user;
+  } catch {
     return fallbackUser;
   }
-
-  return {
-    id: data.id,
-    email: data.email,
-    name: data.name,
-    avatarUrl: data.avatar_url ?? undefined,
-    hasFaceProfile: Boolean(data.face_indexed_at),
-  } satisfies AuthUser;
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {

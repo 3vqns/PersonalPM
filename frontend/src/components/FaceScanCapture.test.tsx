@@ -26,17 +26,30 @@ describe("FaceScanCapture", () => {
     vi.restoreAllMocks();
   });
 
-  it("captures and confirms a selfie", async () => {
+  it("captures and confirms a 3-selfie enrollment set", async () => {
     const user = userEvent.setup();
     const onCapture = vi.fn().mockResolvedValue(undefined);
 
     render(<FaceScanCapture onCapture={onCapture} onSkip={vi.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: /take photo/i }));
-    await user.click(screen.getByRole("button", { name: /looks good/i }));
+    for (let index = 0; index < 3; index += 1) {
+      await user.click(
+        await screen.findByRole("button", {
+          name: index === 0 ? /take photo/i : /capture another selfie/i,
+        }),
+      );
+      await user.click(screen.getByRole("button", { name: /save selfie/i }));
+    }
+
+    await user.click(screen.getByRole("button", { name: /finish face profile/i }));
 
     await waitFor(() => {
       expect(onCapture).toHaveBeenCalledTimes(1);
+      expect(onCapture).toHaveBeenCalledWith([
+        expect.any(Blob),
+        expect.any(Blob),
+        expect.any(Blob),
+      ]);
     });
   });
 

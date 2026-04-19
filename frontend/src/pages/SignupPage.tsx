@@ -66,8 +66,8 @@ export function SignupPage() {
     navigate(redirectTarget, { replace: true });
   }
 
-  async function handleFaceCapture(image: Blob) {
-    await submitFaceScan(image);
+  async function handleFaceCapture(images: Blob[]) {
+    await submitFaceScan(images);
     await refreshSession();
     await finishOnboarding();
   }

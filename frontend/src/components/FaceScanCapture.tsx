@@ -11,10 +11,13 @@ import { cn } from "../lib/cn";
 interface FaceScanCaptureProps extends HTMLAttributes<HTMLDivElement> {
   title?: string;
   description?: string;
-  onCapture: (image: Blob) => Promise<void> | void;
+  onCapture: (images: Blob[]) => Promise<void> | void;
   onSkip?: () => Promise<void> | void;
   submitLabel?: string;
 }
+
+const MIN_SELFIES = 3;
+const MAX_SELFIES = 5;
 
 export function FaceScanCapture({
   className,
@@ -22,21 +25,25 @@ export function FaceScanCapture({
   description = "This lets PictureMe automatically find photos of you at any event you join.",
   onCapture,
   onSkip,
-  submitLabel = "Looks good →",
+  submitLabel = "Finish face profile",
   ...rest
 }: FaceScanCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const selfiesRef = useRef<Array<{ blob: Blob; previewUrl: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [selfies, setSelfies] = useState<Array<{ blob: Blob; previewUrl: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const canCapture = useMemo(
-    () => !loading && !cameraError && !capturedBlob,
-    [cameraError, capturedBlob, loading],
+    () => !loading && !cameraError && !capturedBlob && selfies.length < MAX_SELFIES,
+    [cameraError, capturedBlob, loading, selfies.length],
   );
+  const canSubmit = selfies.length >= MIN_SELFIES && !capturedBlob;
 
   async function startCamera() {
     setLoading(true);
@@ -77,12 +84,23 @@ export function FaceScanCapture({
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
+    previewUrlRef.current = previewUrl;
   }, [previewUrl]);
+
+  useEffect(() => {
+    selfiesRef.current = selfies;
+  }, [selfies]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+      selfiesRef.current.forEach((selfie) => {
+        URL.revokeObjectURL(selfie.previewUrl);
+      });
+    };
+  }, []);
 
   async function handleTakePhoto() {
     if (!videoRef.current) {
@@ -124,14 +142,43 @@ export function FaceScanCapture({
     await startCamera();
   }
 
+  async function handleSaveSelfie() {
+    if (!capturedBlob || !previewUrl) {
+      return;
+    }
+
+    setSelfies((current) => [...current, { blob: capturedBlob, previewUrl }]);
+    setCapturedBlob(null);
+    setPreviewUrl(null);
+
+    if (selfies.length + 1 < MAX_SELFIES) {
+      await startCamera();
+    }
+  }
+
+  function handleRemoveSelfie(index: number) {
+    setSelfies((current) => {
+      const next = [...current];
+      const [removed] = next.splice(index, 1);
+      if (removed) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return next;
+    });
+
+    if (!streamRef.current && !capturedBlob) {
+      void startCamera();
+    }
+  }
+
   async function handleConfirm() {
-    if (!capturedBlob) {
+    if (!canSubmit) {
       return;
     }
 
     setSubmitting(true);
     try {
-      await onCapture(capturedBlob);
+      await onCapture(selfies.map((selfie) => selfie.blob));
     } finally {
       setSubmitting(false);
     }
@@ -158,6 +205,9 @@ export function FaceScanCapture({
         </p>
         <h2 className="text-3xl text-ink">{title}</h2>
         <p className="text-sm leading-6 text-slate">{description}</p>
+        <p className="text-sm font-medium text-ink">
+          Capture {MIN_SELFIES} to {MAX_SELFIES} selfies. You have {selfies.length} ready.
+        </p>
       </div>
 
       <div className="overflow-hidden rounded-[28px] bg-ink">
@@ -195,17 +245,57 @@ export function FaceScanCapture({
         )}
       </div>
 
+      {selfies.length ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-ink">Enrollment set</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate/70">
+              {selfies.length} of {MAX_SELFIES}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+            {selfies.map((selfie, index) => (
+              <div key={selfie.previewUrl} className="space-y-2">
+                <img
+                  src={selfie.previewUrl}
+                  alt={`Enrollment selfie ${index + 1}`}
+                  className="aspect-[3/4] w-full rounded-2xl object-cover"
+                />
+                <button
+                  type="button"
+                  className="ghost-button w-full justify-center text-xs"
+                  onClick={() => handleRemoveSelfie(index)}
+                  disabled={submitting}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row">
         {!capturedBlob ? (
-          <button
-            type="button"
-            className="primary-button flex-1"
-            onClick={() => void handleTakePhoto()}
-            disabled={!canCapture || submitting}
-          >
-            <Camera className="mr-2 h-4 w-4" />
-            Take photo
-          </button>
+          <>
+            <button
+              type="button"
+              className="primary-button flex-1"
+              onClick={() => void handleTakePhoto()}
+              disabled={!canCapture || submitting}
+            >
+              <Camera className="mr-2 h-4 w-4" />
+              {selfies.length ? "Capture another selfie" : "Take photo"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button flex-1"
+              onClick={() => void handleConfirm()}
+              disabled={!canSubmit || submitting}
+            >
+              {submitLabel}
+            </button>
+          </>
         ) : (
           <>
             <button
@@ -219,10 +309,10 @@ export function FaceScanCapture({
             <button
               type="button"
               className="primary-button flex-1"
-              onClick={() => void handleConfirm()}
+              onClick={() => void handleSaveSelfie()}
               disabled={submitting}
             >
-              {submitLabel}
+              Save selfie
             </button>
           </>
         )}

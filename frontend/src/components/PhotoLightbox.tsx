@@ -2,6 +2,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Link as LinkIcon,
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -19,6 +20,7 @@ export function PhotoLightbox({
   onClose,
 }: PhotoLightboxProps) {
   const [index, setIndex] = useState(initialIndex);
+  const [copied, setCopied] = useState(false);
   const currentPhoto = photos[index];
 
   useEffect(() => {
@@ -46,6 +48,12 @@ export function PhotoLightbox({
     return null;
   }
 
+  async function handleCopyLink() {
+    await navigator.clipboard.writeText(currentPhoto.cloudinaryUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-ink/95 p-4 text-white">
       <div className="flex items-center justify-between">
@@ -57,16 +65,26 @@ export function PhotoLightbox({
           <X className="mr-2 h-4 w-4" />
           Close
         </button>
-        <a
-          className="secondary-button border-white/20 bg-white/10 text-white"
-          href={currentPhoto.cloudinaryUrl}
-          download
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Download className="mr-2 h-4 w-4" />
-          Download
-        </a>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="secondary-button border-white/20 bg-white/10 text-white"
+            onClick={() => void handleCopyLink()}
+          >
+            <LinkIcon className="mr-2 h-4 w-4" />
+            {copied ? "Copied" : "Share"}
+          </button>
+          <a
+            className="secondary-button border-white/20 bg-white/10 text-white"
+            href={currentPhoto.cloudinaryUrl}
+            download
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Download
+          </a>
+        </div>
       </div>
 
       <div className="relative flex flex-1 items-center justify-center">

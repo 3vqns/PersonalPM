@@ -78,8 +78,8 @@ export function AccountSettingsPage() {
     }
   }
 
-  async function handleFaceCapture(image: Blob) {
-    await submitFaceScan(image);
+  async function handleFaceCapture(images: Blob[]) {
+    await submitFaceScan(images);
     await refreshSession();
     setCaptureOpen(false);
     await loadAccount();

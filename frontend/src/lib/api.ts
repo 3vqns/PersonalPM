@@ -1,5 +1,4 @@
 import { getDemoApiResponse, isDemoMode } from "./demo";
-import { handleSupabaseApiRequest } from "./supabaseApi";
 import { supabase } from "./supabase";
 
 type AuthMode = boolean | "optional";
@@ -21,6 +20,12 @@ export async function apiFetch<T = unknown>(
     return getDemoApiResponse<T>(path, { method, body: options.body });
   }
 
+  if (!apiBaseUrl) {
+    throw new Error(
+      "Missing VITE_API_BASE_URL. Configure the frontend to call the backend API outside demo mode.",
+    );
+  }
+
   const { auth = true, body, headers, ...requestInit } = options;
   const requestHeaders = new Headers(headers);
   const requestBody = serializeBody(body, requestHeaders);
@@ -35,10 +40,6 @@ export async function apiFetch<T = unknown>(
     } else if (auth !== "optional") {
       throw new Error("You need to sign in before continuing.");
     }
-  }
-
-  if (!apiBaseUrl && path.startsWith("/api/")) {
-    return handleSupabaseApiRequest<T>(path, { body: requestBody, method });
   }
 
   const response = await fetch(`${apiBaseUrl}${path}`, {

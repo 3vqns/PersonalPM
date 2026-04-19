@@ -112,7 +112,7 @@ async def create_event(
             on_conflict="event_id,user_id",
         ).execute()
 
-        if cover is not None and cover.filename:
+        if await _has_upload_content(cover):
             cover_url = await upload_event_cover(event_id=event_id, upload=cover)
             if not cover_url:
                 raise AppError("PictureMe could not upload the event cover image", code="EVENT_COVER_UPLOAD_FAILED", status=502)
@@ -133,6 +133,16 @@ async def create_event(
         raise AppError("PictureMe could not create the event", code="EVENT_CREATE_FAILED", status=500) from exc
 
     return EventCreateResponse(id=event_id)
+
+
+async def _has_upload_content(upload: UploadFile | None) -> bool:
+    """Return whether an optional browser upload actually contains file bytes."""
+    if upload is None or not upload.filename:
+        return False
+
+    chunk = await upload.read(1)
+    await upload.seek(0)
+    return bool(chunk)
 
 
 def get_event_detail(current_user: AuthenticatedUser, *, event_id: str) -> EventDetailResponse:
