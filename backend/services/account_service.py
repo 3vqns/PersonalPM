@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-from uuid import uuid4
 
 from fastapi import BackgroundTasks, UploadFile
 
@@ -20,7 +18,7 @@ from backend.schemas.account import (
     FaceProfileStatusResponse,
     PublicUserRecord,
 )
-from backend.services.cloudinary_service import upload_account_avatar
+from backend.services.cloudinary_service import delete_face_profile_assets, upload_account_avatar, upload_face_profile_selfie
 from backend.services.matching_service import trigger_user_active_event_rematch
 
 logger = logging.getLogger("pictureme.account")
@@ -78,7 +76,7 @@ async def replace_face_profile(
         for sort_order, selfie in enumerate(selfies, start=1):
             uploaded_assets.append(await _upload_enrollment_selfie(current_user.user_id, selfie, sort_order))
     except Exception:
-        _delete_storage_paths([asset["storage_path"] for asset in uploaded_assets])
+        _delete_face_profile_assets(uploaded_assets)
         raise
 
     client = get_supabase_admin_client()
@@ -94,11 +92,11 @@ async def replace_face_profile(
         ).eq("id", current_user.user_id).execute()
         _clear_user_matches(current_user.user_id)
     except Exception as exc:
-        _delete_storage_paths([asset["storage_path"] for asset in uploaded_assets])
+        _delete_face_profile_assets(uploaded_assets)
         raise AppError("PictureMe could not save your face profile", code="FACE_PROFILE_SAVE_FAILED", status=500) from exc
 
     if existing_assets:
-        _delete_storage_paths([asset.storage_path for asset in existing_assets], suppress_errors=True)
+        _delete_face_profile_assets(existing_assets, suppress_errors=True)
 
     if background_tasks is not None:
         background_tasks.add_task(
@@ -114,9 +112,8 @@ async def replace_face_profile(
 def delete_face_profile(current_user: AuthenticatedUser) -> FaceProfileStatusResponse:
     """Remove enrollment selfies and clear dependent match rows."""
     existing_assets = _list_face_profile_images(current_user.user_id)
-    paths_to_delete = [asset.storage_path for asset in existing_assets]
-    if paths_to_delete:
-        _delete_storage_paths(paths_to_delete)
+    if existing_assets:
+        _delete_face_profile_assets(existing_assets)
 
     client = get_supabase_admin_client()
     try:
@@ -192,7 +189,9 @@ def _list_face_profile_images(user_id: str) -> list[FaceProfileImageRecord]:
     """Fetch the current stored enrollment selfie metadata for a user."""
     client = get_supabase_admin_client()
     try:
-        response = client.table("face_profile_images").select("id,user_id,storage_path,sort_order,created_at").eq(
+        response = client.table("face_profile_images").select(
+            "id,user_id,storage_path,cloudinary_id,cloudinary_url,sort_order,created_at"
+        ).eq(
             "user_id", user_id
         ).order("sort_order").execute()
     except Exception as exc:
@@ -203,7 +202,7 @@ def _list_face_profile_images(user_id: str) -> list[FaceProfileImageRecord]:
 
 
 async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order: int) -> dict:
-    """Validate and upload one enrollment selfie into the private bucket."""
+    """Validate and upload one enrollment selfie into Cloudinary."""
     content_type = selfie.content_type or ""
     if content_type not in _ALLOWED_IMAGE_CONTENT_TYPES:
         raise AppError(
@@ -224,47 +223,17 @@ async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order
             details={"maxBytes": getSettings().max_face_profile_selfie_size_bytes, "receivedBytes": len(content)},
         )
 
-    settings = getSettings()
-    path = _build_storage_path(user_id, sort_order, selfie.filename)
-    try:
-        get_supabase_admin_client().storage.from_(settings.face_profile_bucket).upload(
-            path=path,
-            file=content,
-            file_options={"content-type": content_type},
-        )
-    except Exception as exc:
-        raise AppError(
-            "PictureMe could not store your enrollment selfie",
-            code="SELFIE_UPLOAD_FAILED",
-            status=502,
-            details=_storage_error_details(exc),
-        ) from exc
+    await selfie.seek(0)
+    upload_result = await upload_face_profile_selfie(user_id=user_id, sort_order=sort_order, upload=selfie)
+    storage_key = upload_result["public_id"]
 
     return {
         "user_id": user_id,
-        "storage_path": path,
+        "storage_path": storage_key,
+        "cloudinary_id": upload_result["public_id"],
+        "cloudinary_url": upload_result["cloudinary_url"],
         "sort_order": sort_order,
     }
-
-
-def _build_storage_path(user_id: str, sort_order: int, original_filename: str | None) -> str:
-    """Create a collision-resistant private storage path for a selfie asset."""
-    extension = Path(original_filename or "selfie.jpg").suffix.lower() or ".jpg"
-    return f"users/{user_id}/face-profile/{sort_order:02d}-{uuid4().hex}{extension}"
-
-
-def _storage_error_details(exc: Exception) -> dict[str, str | int]:
-    """Normalize upstream storage failures into stable API-safe error details."""
-    details = {
-        "provider": "supabase-storage",
-        "error": getattr(exc, "code", exc.__class__.__name__),
-        "message": getattr(exc, "message", str(exc)),
-    }
-    status = getattr(exc, "status", None)
-    if isinstance(status, int):
-        details["providerStatus"] = status
-    return details
-
 
 def _clear_user_matches(user_id: str) -> None:
     """Delete dependent match rows for a user."""
@@ -274,17 +243,32 @@ def _clear_user_matches(user_id: str) -> None:
         raise AppError("PictureMe could not clear your existing matches", code="MATCH_CLEANUP_FAILED", status=500) from exc
 
 
-def _delete_storage_paths(paths: list[str], *, suppress_errors: bool = False) -> None:
-    """Delete one or more files from the private face-profile storage bucket."""
-    if not paths:
+def _delete_face_profile_assets(assets: list[FaceProfileImageRecord | dict], *, suppress_errors: bool = False) -> None:
+    """Delete one or more enrollment selfie assets from their backing provider."""
+    if not assets:
         return
 
-    settings = getSettings()
+    cloudinary_ids: list[str] = []
+    storage_paths: list[str] = []
+    for asset in assets:
+        cloudinary_id = asset.cloudinary_id if isinstance(asset, FaceProfileImageRecord) else asset.get("cloudinary_id")
+        storage_path = asset.storage_path if isinstance(asset, FaceProfileImageRecord) else asset.get("storage_path")
+        if cloudinary_id:
+            cloudinary_ids.append(cloudinary_id)
+        elif storage_path:
+            storage_paths.append(storage_path)
+
     try:
-        get_supabase_admin_client().storage.from_(settings.face_profile_bucket).remove(paths)
+        if cloudinary_ids:
+            delete_face_profile_assets(public_ids=cloudinary_ids)
+        if storage_paths:
+            get_supabase_admin_client().storage.from_(getSettings().face_profile_bucket).remove(storage_paths)
     except Exception as exc:
         if suppress_errors:
-            logger.warning("Failed to delete replaced face-profile assets", extra={"paths": paths})
+            logger.warning(
+                "Failed to delete replaced face-profile assets",
+                extra={"cloudinaryIds": cloudinary_ids, "storagePaths": storage_paths},
+            )
             return
         raise AppError("PictureMe could not delete your enrollment selfies", code="SELFIE_DELETE_FAILED", status=500) from exc
 

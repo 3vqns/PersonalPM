@@ -1,4 +1,4 @@
-"""Targeted account-service tests for profile updates."""
+"""Targeted account-service tests for profile and face-profile updates."""
 
 from __future__ import annotations
 
@@ -8,8 +8,6 @@ from types import SimpleNamespace
 
 from fastapi import UploadFile
 from starlette.datastructures import Headers
-from storage3.exceptions import StorageApiError
-
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.account import AccountResponse, AccountUserResponse
@@ -38,36 +36,6 @@ class _FakeClient:
     def table(self, name: str):
         assert name == "users"
         return self.users
-
-
-class _RecordingBucket:
-    def __init__(self) -> None:
-        self.upload_calls: list[dict] = []
-
-    def upload(self, *, path, file, file_options):
-        self.upload_calls.append(
-            {
-                "path": path,
-                "file": file,
-                "file_options": file_options,
-            }
-        )
-        return {"path": path}
-
-
-class _FailingBucket:
-    def upload(self, *, path, file, file_options):
-        raise StorageApiError("The resource already exists", "Duplicate", 400)
-
-
-class _StorageClient:
-    def __init__(self, bucket: _RecordingBucket) -> None:
-        self.bucket = bucket
-        self.storage = self
-
-    def from_(self, name: str):
-        assert name == "face-profile-images"
-        return self.bucket
 
 
 def _fake_user() -> AuthenticatedUser:
@@ -125,19 +93,23 @@ def test_update_account_profile_uploads_avatar_and_persists_url(monkeypatch) -> 
     ]
 
 
-def test_upload_enrollment_selfie_passes_raw_bytes_to_storage(monkeypatch) -> None:
-    bucket = _RecordingBucket()
-
-    monkeypatch.setattr(account_service, "get_supabase_admin_client", lambda: _StorageClient(bucket))
+def test_upload_enrollment_selfie_persists_cloudinary_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(
+        account_service,
+        "upload_face_profile_selfie",
+        lambda **_kwargs: asyncio.sleep(
+            0,
+            result={
+                "public_id": "pictureme/face-profiles/user-1/01-abc123",
+                "cloudinary_url": "https://res.cloudinary.com/demo/image/upload/v1/pictureme/face-profiles/user-1/01-abc123.jpg",
+            },
+        ),
+    )
     monkeypatch.setattr(
         account_service,
         "getSettings",
-        lambda: SimpleNamespace(
-            face_profile_bucket="face-profile-images",
-            max_face_profile_selfie_size_bytes=10 * 1024 * 1024,
-        ),
+        lambda: SimpleNamespace(max_face_profile_selfie_size_bytes=10 * 1024 * 1024),
     )
-    monkeypatch.setattr(account_service, "uuid4", lambda: SimpleNamespace(hex="abc123"))
 
     upload = UploadFile(
         filename="selfie.jpg",
@@ -149,29 +121,23 @@ def test_upload_enrollment_selfie_passes_raw_bytes_to_storage(monkeypatch) -> No
 
     assert result == {
         "user_id": "user-1",
-        "storage_path": "users/user-1/face-profile/01-abc123.jpg",
+        "storage_path": "pictureme/face-profiles/user-1/01-abc123",
+        "cloudinary_id": "pictureme/face-profiles/user-1/01-abc123",
+        "cloudinary_url": "https://res.cloudinary.com/demo/image/upload/v1/pictureme/face-profiles/user-1/01-abc123.jpg",
         "sort_order": 1,
     }
-    assert bucket.upload_calls == [
-        {
-            "path": "users/user-1/face-profile/01-abc123.jpg",
-            "file": b"selfie-bytes",
-            "file_options": {"content-type": "image/jpeg"},
-        }
-    ]
 
 
-def test_upload_enrollment_selfie_surfaces_storage_error_details(monkeypatch) -> None:
-    monkeypatch.setattr(account_service, "get_supabase_admin_client", lambda: _StorageClient(_FailingBucket()))
+def test_upload_enrollment_selfie_surfaces_cloudinary_errors(monkeypatch) -> None:
+    async def _fail_upload(**_kwargs):
+        raise AppError("PictureMe could not store your enrollment selfie", code="SELFIE_UPLOAD_FAILED", status=502)
+
+    monkeypatch.setattr(account_service, "upload_face_profile_selfie", _fail_upload)
     monkeypatch.setattr(
         account_service,
         "getSettings",
-        lambda: SimpleNamespace(
-            face_profile_bucket="face-profile-images",
-            max_face_profile_selfie_size_bytes=10 * 1024 * 1024,
-        ),
+        lambda: SimpleNamespace(max_face_profile_selfie_size_bytes=10 * 1024 * 1024),
     )
-    monkeypatch.setattr(account_service, "uuid4", lambda: SimpleNamespace(hex="abc123"))
 
     upload = UploadFile(
         filename="selfie.jpg",
@@ -185,9 +151,3 @@ def test_upload_enrollment_selfie_surfaces_storage_error_details(monkeypatch) ->
     except AppError as exc:
         assert exc.code == "SELFIE_UPLOAD_FAILED"
         assert exc.status == 502
-        assert exc.details == {
-            "provider": "supabase-storage",
-            "error": "Duplicate",
-            "message": "The resource already exists",
-            "providerStatus": 400,
-        }

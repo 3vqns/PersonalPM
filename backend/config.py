@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     cloudinary_cloud_name: str | None = Field(default=None, min_length=1)
     cloudinary_api_key: SecretStr | None = None
     cloudinary_api_secret: SecretStr | None = None
+    face_profile_folder: str = "pictureme/face-profiles"
     account_avatar_folder: str = "pictureme/avatars"
     event_cover_folder: str = "pictureme/event-covers"
     event_photo_folder: str = "pictureme/events"

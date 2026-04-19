@@ -63,12 +63,15 @@ class FaceProfileImageRecord(BaseModel):
     id: str
     user_id: str
     storage_path: str
+    cloudinary_id: str | None = None
+    cloudinary_url: str | None = None
     sort_order: int
     created_at: datetime | None = None
 
     @property
     def inferred_content_type(self) -> str | None:
-        extension = Path(self.storage_path).suffix.lower()
+        source = self.cloudinary_url or self.storage_path
+        extension = Path(source).suffix.lower()
         if extension in {".jpg", ".jpeg"}:
             return "image/jpeg"
         if extension == ".png":

@@ -1,4 +1,4 @@
-"""Cloudinary helpers for event gallery photos."""
+"""Cloudinary helpers for browser and gallery image uploads."""
 
 from __future__ import annotations
 
@@ -50,6 +50,26 @@ async def upload_event_cover(*, event_id: str, upload: UploadFile) -> str:
             {"width": 1600, "height": 900, "crop": "fill", "gravity": "auto", "quality": "auto", "fetch_format": "auto"},
         ],
     )
+
+
+async def upload_face_profile_selfie(*, user_id: str, sort_order: int, upload: UploadFile) -> dict[str, str]:
+    """Upload one enrollment selfie and return the stored Cloudinary metadata."""
+    settings = getSettings()
+    public_id = f"{settings.face_profile_folder}/{user_id}/{sort_order:02d}-{uuid4().hex}"
+    secure_url = await _upload_browser_image(
+        upload=upload,
+        asset_folder=f"{settings.face_profile_folder}/{user_id}",
+        public_id=public_id,
+        operation_name="cloudinary.upload_face_profile_selfie",
+        max_bytes=settings.max_face_profile_selfie_size_bytes,
+        upload_error_code="SELFIE_UPLOAD_FAILED",
+        upload_error_message="PictureMe could not store your enrollment selfie",
+        eager=[],
+    )
+    return {
+        "public_id": public_id,
+        "cloudinary_url": secure_url,
+    }
 
 
 def upload_event_photo(*, event_id: str, file_name: str, content: bytes) -> dict:
@@ -119,6 +139,14 @@ def delete_event_photo_assets(*, public_ids: list[str]) -> dict[str, str]:
         deleted.update(response.get("deleted", {}))
 
     return deleted
+
+
+def delete_face_profile_assets(*, public_ids: list[str]) -> dict[str, str]:
+    """Delete one or more enrollment selfie assets by Cloudinary public id."""
+    try:
+        return delete_event_photo_assets(public_ids=public_ids)
+    except AppError as exc:
+        raise AppError("PictureMe could not delete your enrollment selfies", code="SELFIE_DELETE_FAILED", status=500) from exc
 
 
 async def _upload_browser_image(
