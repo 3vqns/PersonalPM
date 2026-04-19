@@ -27,6 +27,7 @@ import type {
   MatchedPhoto,
   MyPhotosResponse,
   Photo,
+  ShareGalleryTokenResponse,
 } from "../types";
 
 type LightboxSource = "my" | "all" | null;
@@ -46,6 +47,7 @@ export function EventGalleryPage() {
   const [lightboxSource, setLightboxSource] = useState<LightboxSource>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [galleryShareUrl, setGalleryShareUrl] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     const response = await apiFetch<EventDetail>(`/api/events/${id}`);
@@ -175,6 +177,40 @@ export function EventGalleryPage() {
   const showCreatedPanel =
     searchParams.get("created") === "1" && event?.role === "creator";
   const showDenied = searchParams.get("denied") === "1";
+
+  useEffect(() => {
+    if (!id || !hasFaceProfile || myPhotos.length === 0 || galleryShareUrl) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadGalleryShareUrl() {
+      try {
+        const response = await apiFetch<ShareGalleryTokenResponse>("/api/gallery-tokens", {
+          method: "POST",
+          body: { eventId: id },
+        });
+        if (!cancelled) {
+          setGalleryShareUrl(response.url);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "PictureMe could not create a personal gallery share link.",
+          );
+        }
+      }
+    }
+
+    void loadGalleryShareUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryShareUrl, hasFaceProfile, id, myPhotos.length]);
 
   async function handleDeletePhoto(photo: Photo) {
     const confirmed = window.confirm(
@@ -339,13 +375,26 @@ export function EventGalleryPage() {
               )}
             </div>
 
-            {activeTab === "my" && myPhotos.length > 0 ? (
+            {activeTab === "my" && myPhotos.length > 0 && galleryShareUrl ? (
+              <ShareEventPanel
+                eventName={event.name}
+                shareUrl={galleryShareUrl}
+                eyebrow="Share gallery"
+                title="Share your photos instantly"
+                description="Scan the QR code or send the gallery link so anyone can view only your matched photos without creating an account."
+                linkLabel="Gallery link"
+                copyLabel="Copy gallery link"
+                downloadLabel="Download gallery QR"
+              />
+            ) : null}
+
+            {activeTab === "all" ? (
               <ShareEventPanel
                 eventName={event.name}
                 joinToken={event.joinToken}
                 eyebrow="Share gallery"
-                title="Share these photos instantly"
-                description="Scan the QR code or send the gallery link so anyone can view this event gallery without creating an account."
+                title="Share the full event gallery"
+                description="Scan the QR code or send the gallery link so anyone can view all event photos without creating an account."
                 linkLabel="Gallery link"
                 copyLabel="Copy gallery link"
                 downloadLabel="Download gallery QR"
