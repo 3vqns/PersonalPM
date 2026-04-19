@@ -40,7 +40,7 @@ def get_my_photos(current_user: AuthenticatedUser, *, event_id: str) -> MyPhotos
     _require_event_membership(current_user.user_id, event)
     public_user = get_public_user_record(current_user)
     matched_photos = _list_user_matched_photos(user_id=current_user.user_id, event_id=event.id)
-    download_url = matched_photos[0].cloudinary_url if matched_photos else None
+    download_url = matched_photos[0][1].cloudinary_url if matched_photos else None
 
     return MyPhotosResponse(
         photos=[_map_matched_photo(match, photo) for match, photo in matched_photos],

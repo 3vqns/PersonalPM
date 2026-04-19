@@ -78,6 +78,73 @@ def test_shared_gallery_uses_only_token_owner_matches(monkeypatch) -> None:
     assert response.download_all_url == "https://example.com/photo.jpg"
 
 
+def test_my_photos_uses_first_matched_photo_for_download_url(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Expo",
+        description=None,
+        date=date(2026, 4, 18),
+        expires_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+
+    monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(gallery_service, "_require_event_membership", lambda _user_id, _event: None)
+    monkeypatch.setattr(
+        gallery_service,
+        "get_public_user_record",
+        lambda _current_user: PublicUserRecord(
+            id="user-1",
+            email="user@example.com",
+            name="User One",
+            avatar_url="https://example.com/avatar.jpg",
+            face_indexed_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        gallery_service,
+        "_list_user_matched_photos",
+        lambda user_id, event_id: [
+            (
+                UserPhotoMatchRecord(
+                    id="match-1",
+                    user_id=user_id,
+                    photo_id="photo-1",
+                    event_id=event_id,
+                    similarity_score=96.5,
+                    matched_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+                ),
+                PhotoRecord(
+                    id="photo-1",
+                    event_id=event_id,
+                    cloudinary_url="https://example.com/photo.jpg",
+                    thumbnail_url="https://example.com/photo-thumb.jpg",
+                    uploaded_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+                    face_count=3,
+                ),
+            )
+        ],
+    )
+
+    response = gallery_service.get_my_photos(current_user, event_id=event.id)
+
+    assert [photo.id for photo in response.photos] == ["photo-1"]
+    assert response.download_all_url == "https://example.com/photo.jpg"
+    assert response.has_face_profile is True
+
+
 def test_gallery_token_creation_rejects_expired_events(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",
