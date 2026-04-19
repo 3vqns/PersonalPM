@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
+from pathlib import Path
 from uuid import uuid4
 
 import cloudinary.api
 import cloudinary.uploader
+from fastapi import UploadFile
 
 from backend.config import getSettings
 from backend.core.cloudinary import configure_cloudinary
@@ -15,6 +17,39 @@ from backend.core.retry import run_with_retries
 from backend.errors import AppError
 
 logger = logging.getLogger("pictureme.cloudinary")
+_ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+
+
+async def upload_account_avatar(*, user_id: str, upload: UploadFile) -> str:
+    """Upload one user avatar image and return the delivery URL."""
+    return await _upload_browser_image(
+        upload=upload,
+        asset_folder=f"{getSettings().account_avatar_folder}/{user_id}",
+        public_id=f"{getSettings().account_avatar_folder}/{user_id}/{uuid4().hex}",
+        operation_name="cloudinary.upload_account_avatar",
+        max_bytes=getSettings().max_account_avatar_size_bytes,
+        upload_error_code="AVATAR_UPLOAD_FAILED",
+        upload_error_message="PictureMe could not upload your avatar",
+        eager=[
+            {"width": 512, "height": 512, "crop": "fill", "gravity": "face", "quality": "auto", "fetch_format": "auto"},
+        ],
+    )
+
+
+async def upload_event_cover(*, event_id: str, upload: UploadFile) -> str:
+    """Upload one event cover image and return the delivery URL."""
+    return await _upload_browser_image(
+        upload=upload,
+        asset_folder=f"{getSettings().event_cover_folder}/{event_id}",
+        public_id=f"{getSettings().event_cover_folder}/{event_id}/{uuid4().hex}",
+        operation_name="cloudinary.upload_event_cover",
+        max_bytes=getSettings().max_event_cover_size_bytes,
+        upload_error_code="EVENT_COVER_UPLOAD_FAILED",
+        upload_error_message="PictureMe could not upload the event cover image",
+        eager=[
+            {"width": 1600, "height": 900, "crop": "fill", "gravity": "auto", "quality": "auto", "fetch_format": "auto"},
+        ],
+    )
 
 
 def upload_event_photo(*, event_id: str, file_name: str, content: bytes) -> dict:
@@ -84,3 +119,63 @@ def delete_event_photo_assets(*, public_ids: list[str]) -> dict[str, str]:
         deleted.update(response.get("deleted", {}))
 
     return deleted
+
+
+async def _upload_browser_image(
+    *,
+    upload: UploadFile,
+    asset_folder: str,
+    public_id: str,
+    operation_name: str,
+    max_bytes: int,
+    upload_error_code: str,
+    upload_error_message: str,
+    eager: list[dict],
+) -> str:
+    """Validate and upload one user-supplied image asset."""
+    content_type = upload.content_type or ""
+    if content_type not in _ALLOWED_IMAGE_CONTENT_TYPES:
+        raise AppError(
+            "Image uploads must be JPEG, PNG, WebP, or HEIC files",
+            code="INVALID_IMAGE_TYPE",
+            status=422,
+            details={"contentType": content_type or None},
+        )
+
+    content = await upload.read()
+    if not content:
+        raise AppError("Image upload was empty", code="INVALID_IMAGE", status=422)
+    if len(content) > max_bytes:
+        raise AppError(
+            "Image upload exceeds the allowed file size",
+            code="IMAGE_TOO_LARGE",
+            status=422,
+            details={"maxBytes": max_bytes, "receivedBytes": len(content)},
+        )
+
+    configure_cloudinary()
+    filename = upload.filename or f"{uuid4().hex}{Path(public_id).suffix or '.jpg'}"
+
+    try:
+        response = run_with_retries(
+            operation_name=operation_name,
+            attempts=getSettings().external_retry_attempts,
+            backoff_seconds=getSettings().external_retry_backoff_seconds,
+            logger=logger,
+            func=lambda: cloudinary.uploader.upload(
+                BytesIO(content),
+                public_id=public_id,
+                resource_type="image",
+                overwrite=False,
+                folder=None,
+                eager=eager,
+                use_filename=False,
+                unique_filename=False,
+                asset_folder=asset_folder,
+                filename_override=filename,
+            ),
+        )
+    except Exception as exc:
+        raise AppError(upload_error_message, code=upload_error_code, status=502) from exc
+
+    return response.get("secure_url") or ""

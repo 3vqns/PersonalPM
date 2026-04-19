@@ -48,13 +48,16 @@ async def post_event(
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> EventCreateResponse:
     """Create an event and its Rekognition collection."""
-    if cover is not None and cover.filename:
-        raise AppError("Cover photo uploads are not implemented yet", code="COVER_UPLOAD_NOT_IMPLEMENTED", status=501)
-
     payload = EventUpdateRequest(name=name, date=date, description=description)
     if payload.date is None or payload.name is None:
         raise AppError("Missing required event fields", code="VALIDATION_ERROR", status=422)
-    return create_event(current_user, name=payload.name, date_value=payload.date, description=payload.description)
+    return await create_event(
+        current_user,
+        name=payload.name,
+        date_value=payload.date,
+        description=payload.description,
+        cover=cover,
+    )
 
 
 @router.get("/api/events/join/{token}", response_model=JoinPreviewResponse)

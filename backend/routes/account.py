@@ -3,7 +3,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 
 from backend.dependencies.auth import AuthenticatedUser, require_authenticated_user
-from backend.errors import AppError
 from backend.schemas.account import AccountResponse, FaceProfileStatusResponse
 from backend.services.account_service import delete_face_profile, get_account, replace_face_profile, update_account_profile
 
@@ -25,14 +24,7 @@ async def patch_account_profile(
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> AccountResponse:
     """Update editable profile fields while keeping media secrets backend-only."""
-    if avatar is not None and avatar.filename:
-        raise AppError(
-            "Avatar uploads are not implemented yet",
-            code="AVATAR_UPLOAD_NOT_IMPLEMENTED",
-            status=501,
-        )
-
-    return update_account_profile(current_user, name=name)
+    return await update_account_profile(current_user, name=name, avatar=avatar)
 
 
 @router.post("/face-profile", response_model=FaceProfileStatusResponse)

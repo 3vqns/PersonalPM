@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timezone
+from io import BytesIO
 from types import SimpleNamespace
+
+from fastapi import UploadFile
+from starlette.datastructures import Headers
 
 from backend.dependencies.auth import AuthenticatedUser
 from backend.schemas.account import PublicUserRecord
@@ -22,16 +27,59 @@ class FakeBackgroundTasks:
 
 
 class _FakeTable:
+    def __init__(self, name: str, client: "_FakeClient") -> None:
+        self.name = name
+        self.client = client
+        self.last_payload = None
+
     def insert(self, _payload):
+        self.last_payload = _payload
+        if self.name == "events":
+            self.client.inserted_event_payloads.append(_payload)
+        return self
+
+    def update(self, payload):
+        self.last_payload = payload
+        if self.name == "events":
+            self.client.updated_event_payloads.append(payload)
+        return self
+
+    def delete(self):
+        return self
+
+    def eq(self, _key: str, _value: str):
+        return self
+
+    def upsert(self, payload, on_conflict=None):
+        self.last_payload = payload
+        if self.name == "event_members":
+            self.client.upserted_memberships.append((payload, on_conflict))
+        return self
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def single(self):
         return self
 
     def execute(self):
+        if self.name == "events" and self.client.inserted_event_payloads:
+            return SimpleNamespace(data={"id": "event-1"})
         return SimpleNamespace(data={"id": "membership-1"})
 
 
 class _FakeClient:
+    def __init__(self) -> None:
+        self.inserted_event_payloads: list[dict] = []
+        self.updated_event_payloads: list[dict] = []
+        self.upserted_memberships: list[tuple[dict, str | None]] = []
+
     def table(self, _name: str):
-        return _FakeTable()
+        return _FakeTable(_name, self)
+
+
+def _build_upload_file(name: str) -> UploadFile:
+    return UploadFile(filename=name, file=BytesIO(b"cover-bytes"), headers=Headers({"content-type": "image/jpeg"}))
 
 
 def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
@@ -81,3 +129,65 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
     assert queued_func is event_service.trigger_user_event_match
     assert kwargs == {"user_id": current_user.user_id, "event_id": event.id, "reason": "event-join"}
 
+
+def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    client = _FakeClient()
+
+    monkeypatch.setattr(
+        event_service,
+        "get_public_user_record",
+        lambda _current_user: PublicUserRecord(
+            id=current_user.user_id,
+            email=current_user.email or "",
+            name="User One",
+            avatar_url=None,
+            face_profile_completed=False,
+            face_profile_updated_at=None,
+        ),
+    )
+    monkeypatch.setattr(
+        event_service,
+        "getSettings",
+        lambda: SimpleNamespace(
+            rekognition_collection_prefix="pictureme-event",
+            external_retry_attempts=1,
+            external_retry_backoff_seconds=0.0,
+        ),
+    )
+    monkeypatch.setattr(event_service, "run_with_retries", lambda **_kwargs: None)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+    monkeypatch.setattr(
+        event_service,
+        "upload_event_cover",
+        lambda **_kwargs: asyncio.sleep(0, result="https://cdn.example.com/event-cover.jpg"),
+    )
+
+    response = asyncio.run(
+        event_service.create_event(
+            current_user,
+            name="Launch Party",
+            date_value=date(2026, 4, 18),
+            description="Night one",
+            cover=_build_upload_file("cover.jpg"),
+        )
+    )
+
+    assert response.id == "event-1"
+    assert client.inserted_event_payloads
+    assert client.updated_event_payloads == [{"cover_url": "https://cdn.example.com/event-cover.jpg"}]
+    assert client.upserted_memberships == [
+        (
+            {
+                "event_id": "event-1",
+                "user_id": current_user.user_id,
+                "role": "creator",
+            },
+            "event_id,user_id",
+        )
+    ]

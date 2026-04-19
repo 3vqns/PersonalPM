@@ -21,6 +21,7 @@ from backend.schemas.account import (
     FaceProfileStatusResponse,
     PublicUserRecord,
 )
+from backend.services.cloudinary_service import upload_account_avatar
 from backend.services.matching_service import trigger_user_active_event_rematch
 
 logger = logging.getLogger("pictureme.account")
@@ -35,15 +36,27 @@ def get_account(current_user: AuthenticatedUser) -> AccountResponse:
     return _build_account_response(user_record)
 
 
-def update_account_profile(current_user: AuthenticatedUser, *, name: str) -> AccountResponse:
+async def update_account_profile(
+    current_user: AuthenticatedUser,
+    *,
+    name: str,
+    avatar: UploadFile | None = None,
+) -> AccountResponse:
     """Update the current user's editable account profile fields."""
     cleaned_name = name.strip()
     if not cleaned_name:
         raise AppError("A profile name is required", code="VALIDATION_ERROR", status=422)
 
+    update_payload: dict[str, str] = {"name": cleaned_name}
+    if avatar is not None and avatar.filename:
+        avatar_url = await upload_account_avatar(user_id=current_user.user_id, upload=avatar)
+        if not avatar_url:
+            raise AppError("PictureMe could not upload your avatar", code="AVATAR_UPLOAD_FAILED", status=502)
+        update_payload["avatar_url"] = avatar_url
+
     client = get_supabase_admin_client()
     try:
-        client.table("users").update({"name": cleaned_name}).eq("id", current_user.user_id).execute()
+        client.table("users").update(update_payload).eq("id", current_user.user_id).execute()
     except Exception as exc:
         raise AppError("PictureMe could not update your profile", code="ACCOUNT_UPDATE_FAILED", status=500) from exc
 

@@ -20,10 +20,10 @@ class Settings(BaseSettings):
     port: int = 8000
     node_env: Literal["development", "test", "production"] = "development"
     app_origin: str = Field(
-        default="http://personal-pm-frontend-one.vercel.app",
+        default="http://localhost:3000",
         validation_alias=AliasChoices("APP_ORIGIN", "VITE_API_BASE_URL"),
     )
-    frontend_origin: str = "http://personal-pm-frontend-one.vercel.app"
+    frontend_origin: str = "http://localhost:5173"
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
 
     # Supabase
@@ -44,11 +44,15 @@ class Settings(BaseSettings):
     cloudinary_cloud_name: str | None = Field(default=None, min_length=1)
     cloudinary_api_key: SecretStr | None = None
     cloudinary_api_secret: SecretStr | None = None
+    account_avatar_folder: str = "pictureme/avatars"
+    event_cover_folder: str = "pictureme/event-covers"
     event_photo_folder: str = "pictureme/events"
     external_retry_attempts: int = Field(default=3, ge=1, le=10)
     external_retry_backoff_seconds: float = Field(default=0.5, ge=0, le=5)
 
     # Uploads
+    max_account_avatar_size_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
+    max_event_cover_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     max_event_photo_size_bytes: int = Field(default=15 * 1024 * 1024, gt=0)
     max_event_upload_batch_files: int = Field(default=50, ge=1, le=500)
     max_face_profile_selfie_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)

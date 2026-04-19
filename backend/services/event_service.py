@@ -6,7 +6,7 @@ import logging
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, UploadFile
 
 from backend.config import getSettings
 from backend.core.retry import run_with_retries
@@ -30,6 +30,7 @@ from backend.schemas.event import (
     JoinPreviewResponse,
 )
 from backend.services.account_service import get_public_user_record
+from backend.services.cloudinary_service import upload_event_cover
 from backend.services.matching_service import trigger_user_event_match
 
 logger = logging.getLogger("pictureme.events")
@@ -55,7 +56,14 @@ def get_dashboard(current_user: AuthenticatedUser) -> DashboardResponse:
     )
 
 
-def create_event(current_user: AuthenticatedUser, *, name: str, date_value: date, description: str | None) -> EventCreateResponse:
+async def create_event(
+    current_user: AuthenticatedUser,
+    *,
+    name: str,
+    date_value: date,
+    description: str | None,
+    cover: UploadFile | None = None,
+) -> EventCreateResponse:
     """Create an event, its creator membership, and its Rekognition collection."""
     creator = get_public_user_record(current_user)
     cleaned_name = name.strip()
@@ -103,13 +111,25 @@ def create_event(current_user: AuthenticatedUser, *, name: str, date_value: date
             },
             on_conflict="event_id,user_id",
         ).execute()
+
+        if cover is not None and cover.filename:
+            cover_url = await upload_event_cover(event_id=event_id, upload=cover)
+            if not cover_url:
+                raise AppError("PictureMe could not upload the event cover image", code="EVENT_COVER_UPLOAD_FAILED", status=502)
+            client.table("events").update({"cover_url": cover_url}).eq("id", event_id).execute()
     except Exception as exc:
         if event_id is not None:
+            try:
+                client.table("event_members").delete().eq("event_id", event_id).execute()
+            except Exception:
+                logger.warning("Failed to roll back creator membership for event %s after creation failure", event_id)
             try:
                 client.table("events").delete().eq("id", event_id).execute()
             except Exception:
                 logger.warning("Failed to roll back event %s after creator membership creation failed", event_id)
         _delete_rekognition_collection(collection_id, suppress_not_found=True)
+        if isinstance(exc, AppError):
+            raise exc
         raise AppError("PictureMe could not create the event", code="EVENT_CREATE_FAILED", status=500) from exc
 
     return EventCreateResponse(id=event_id)
