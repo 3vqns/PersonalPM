@@ -38,6 +38,31 @@ class _FakeClient:
         return self.users
 
 
+class _RecordingBucket:
+    def __init__(self) -> None:
+        self.upload_calls: list[dict] = []
+
+    def upload(self, *, path, file, file_options):
+        self.upload_calls.append(
+            {
+                "path": path,
+                "file": file,
+                "file_options": file_options,
+            }
+        )
+        return {"path": path}
+
+
+class _StorageClient:
+    def __init__(self, bucket: _RecordingBucket) -> None:
+        self.bucket = bucket
+        self.storage = self
+
+    def from_(self, name: str):
+        assert name == "face-profile-images"
+        return self.bucket
+
+
 def _fake_user() -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id="user-1",
@@ -89,5 +114,41 @@ def test_update_account_profile_uploads_avatar_and_persists_url(monkeypatch) -> 
         {
             "name": "Jordan Lee",
             "avatar_url": "https://cdn.example.com/avatar.jpg",
+        }
+    ]
+
+
+def test_upload_enrollment_selfie_passes_raw_bytes_to_storage(monkeypatch) -> None:
+    bucket = _RecordingBucket()
+
+    monkeypatch.setattr(account_service, "get_supabase_admin_client", lambda: _StorageClient(bucket))
+    monkeypatch.setattr(
+        account_service,
+        "getSettings",
+        lambda: SimpleNamespace(
+            face_profile_bucket="face-profile-images",
+            max_face_profile_selfie_size_bytes=10 * 1024 * 1024,
+        ),
+    )
+    monkeypatch.setattr(account_service, "uuid4", lambda: SimpleNamespace(hex="abc123"))
+
+    upload = UploadFile(
+        filename="selfie.jpg",
+        file=BytesIO(b"selfie-bytes"),
+        headers=Headers({"content-type": "image/jpeg"}),
+    )
+
+    result = asyncio.run(account_service._upload_enrollment_selfie("user-1", upload, 1))
+
+    assert result == {
+        "user_id": "user-1",
+        "storage_path": "users/user-1/face-profile/01-abc123.jpg",
+        "sort_order": 1,
+    }
+    assert bucket.upload_calls == [
+        {
+            "path": "users/user-1/face-profile/01-abc123.jpg",
+            "file": b"selfie-bytes",
+            "file_options": {"content-type": "image/jpeg", "upsert": "false"},
         }
     ]

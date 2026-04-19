@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -230,7 +229,7 @@ async def _upload_enrollment_selfie(user_id: str, selfie: UploadFile, sort_order
     try:
         get_supabase_admin_client().storage.from_(settings.face_profile_bucket).upload(
             path=path,
-            file=BytesIO(content),
+            file=content,
             file_options={"content-type": content_type, "upsert": "false"},
         )
     except Exception as exc:
