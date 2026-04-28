@@ -12,7 +12,7 @@ PictureMe is designed to solve a common event problem:
 - Attendees rarely have time to browse everything manually.
 - Most people only care about the photos they are actually in.
 
-The core idea is to combine account-based face registration, event-level roles, event check-in, and automated face matching so attendees can quickly access the photos that matter to them while organizers retain control of each event gallery.
+The core idea is to combine account based face registration, event-level roles, event check-in, and automated face matching so attendees can quickly access the photos that matter to them while organizers retain control of each event gallery.
 
 ## Intended User Flow
 
