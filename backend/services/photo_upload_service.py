@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.request
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
@@ -17,8 +18,8 @@ from backend.core.supabase_response import get_first_row
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord, EventRole
-from backend.schemas.upload import StagedUploadFile, UploadJobStartResponse
-from backend.services.cloudinary_service import delete_event_photo_assets, upload_event_photo
+from backend.schemas.upload import CloudinaryUploadToken, DirectUploadPhoto, StagedUploadFile, UploadJobStartResponse
+from backend.services.cloudinary_service import delete_event_photo_assets, generate_event_photo_upload_params, upload_event_photo
 from backend.services.matching_service import trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
 
@@ -63,6 +64,113 @@ async def start_event_upload_batch(
         extra={"job_id": job_id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
     )
     return UploadJobStartResponse(jobId=job_id)
+
+
+def get_event_upload_token(
+    current_user: AuthenticatedUser,
+    *,
+    event_id: str,
+) -> CloudinaryUploadToken:
+    """Verify upload access and return signed Cloudinary params for direct browser upload."""
+    event, _ = _require_upload_access(current_user.user_id, event_id)
+    if event.status != "active":
+        raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
+    return generate_event_photo_upload_params(event_id=event.id)
+
+
+def index_direct_uploads(
+    current_user: AuthenticatedUser,
+    *,
+    event_id: str,
+    photos: list[DirectUploadPhoto],
+    background_tasks: BackgroundTasks,
+) -> UploadJobStartResponse:
+    """Validate and schedule background indexing for photos uploaded directly to Cloudinary."""
+    event, role = _require_upload_access(current_user.user_id, event_id)
+    if event.status != "active":
+        raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
+    if not photos:
+        raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
+    if len(photos) > getSettings().max_event_upload_batch_files:
+        raise AppError(
+            "Too many photos were submitted in one batch",
+            code="UPLOAD_BATCH_TOO_LARGE",
+            status=422,
+            details={"maxFiles": getSettings().max_event_upload_batch_files, "received": len(photos)},
+        )
+
+    expected_prefix = f"{getSettings().event_photo_folder}/{event_id}/"
+    for photo in photos:
+        if not photo.public_id.startswith(expected_prefix):
+            raise AppError("One or more photo references are invalid", code="FORBIDDEN", status=403)
+
+    job_id = f"upload-{uuid4().hex}"
+    background_tasks.add_task(_process_direct_upload_job, job_id, current_user.user_id, event, photos)
+    logger.info(
+        "Accepted direct upload batch",
+        extra={"job_id": job_id, "event_id": event.id, "role": role, "file_count": len(photos)},
+    )
+    return UploadJobStartResponse(jobId=job_id)
+
+
+def _process_direct_upload_job(
+    job_id: str,
+    uploader_user_id: str,
+    event: EventRecord,
+    photos: list[DirectUploadPhoto],
+) -> None:
+    indexed_files = 0
+    failed_files = 0
+
+    cloud_name = getSettings().cloudinary_cloud_name_value
+
+    for photo in photos:
+        try:
+            logger.info(
+                "Indexing direct upload",
+                extra={"job_id": job_id, "event_id": event.id, "public_id": photo.public_id},
+            )
+            canonical_url = f"https://res.cloudinary.com/{cloud_name}/image/upload/{photo.public_id}"
+            thumbnail_url = (
+                f"https://res.cloudinary.com/{cloud_name}/image/upload"
+                f"/c_limit,f_auto,h_640,q_auto,w_640/{photo.public_id}"
+            )
+            content = _fetch_cloudinary_image(canonical_url)
+            upload_result = {
+                "public_id": photo.public_id,
+                "cloudinary_url": canonical_url,
+                "thumbnail_url": thumbnail_url,
+                "original_filename": photo.original_filename,
+            }
+            photo_id = _insert_photo_row(event.id, uploader_user_id, upload_result)
+            face_records = index_event_photo(
+                collection_id=event.rekognition_collection_id,
+                photo_id=photo_id,
+                content=content,
+            )
+            _insert_face_index_rows(event.id, photo_id, face_records)
+            indexed_files += 1
+        except AppError as exc:
+            logger.warning(
+                "Direct upload index failed",
+                extra={"job_id": job_id, "event_id": event.id, "public_id": photo.public_id, "code": exc.code},
+            )
+            failed_files += 1
+        except Exception:
+            logger.exception("Unexpected failure indexing direct upload %s photo %s", job_id, photo.public_id)
+            failed_files += 1
+
+    logger.info(
+        "Direct upload batch finished",
+        extra={"job_id": job_id, "event_id": event.id, "indexed_files": indexed_files, "failed_files": failed_files},
+    )
+    if indexed_files > 0:
+        trigger_event_member_rematch(event_id=event.id, reason="photo-upload-batch")
+
+
+def _fetch_cloudinary_image(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
+        return response.read()
 
 
 async def _stage_upload_files(event_id: str, files: list[UploadFile]) -> list[StagedUploadFile]:

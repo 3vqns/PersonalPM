@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import logging
+import time
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
 import cloudinary.api
 import cloudinary.uploader
+import cloudinary.utils
 from fastapi import UploadFile
 
 from backend.config import getSettings
 from backend.core.cloudinary import configure_cloudinary
 from backend.core.retry import run_with_retries
 from backend.errors import AppError
+from backend.schemas.upload import CloudinaryUploadToken
 
 logger = logging.getLogger("pictureme.cloudinary")
 _ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
@@ -70,6 +73,33 @@ async def upload_face_profile_selfie(*, user_id: str, sort_order: int, upload: U
         "public_id": public_id,
         "cloudinary_url": secure_url,
     }
+
+
+_EAGER_TRANSFORMATION = "c_limit,f_auto,h_640,q_auto,w_640"
+
+
+def generate_event_photo_upload_params(*, event_id: str) -> CloudinaryUploadToken:
+    """Return signed Cloudinary upload params the browser can use to upload directly."""
+    configure_cloudinary()
+    settings = getSettings()
+    timestamp = int(time.time())
+    folder = f"{settings.event_photo_folder}/{event_id}"
+
+    params_to_sign = {
+        "eager": _EAGER_TRANSFORMATION,
+        "folder": folder,
+        "timestamp": timestamp,
+    }
+    signature = cloudinary.utils.api_sign_request(params_to_sign, settings.cloudinary_api_secret_value)
+
+    return CloudinaryUploadToken(
+        cloudName=settings.cloudinary_cloud_name_value,
+        apiKey=settings.cloudinary_api_key_value,
+        timestamp=timestamp,
+        signature=signature,
+        folder=folder,
+        eager=_EAGER_TRANSFORMATION,
+    )
 
 
 def upload_event_photo(*, event_id: str, file_name: str, content: bytes) -> dict:

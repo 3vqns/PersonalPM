@@ -79,3 +79,37 @@ class StagedUploadFile(BaseModel):
     content_type: str
     byte_size: int
     content: bytes
+
+
+class CloudinaryUploadToken(BaseModel):
+    """Signed Cloudinary upload params returned to the browser for direct upload."""
+
+    cloud_name: str = Field(alias="cloudName")
+    api_key: str = Field(alias="apiKey")
+    timestamp: int
+    signature: str
+    folder: str
+    eager: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DirectUploadPhoto(BaseModel):
+    """One photo successfully uploaded directly from the browser to Cloudinary."""
+
+    public_id: str = Field(alias="publicId")
+    original_filename: str = Field(alias="originalFilename")
+    cloudinary_url: str = Field(alias="cloudinaryUrl")
+    thumbnail_url: str | None = Field(default=None, alias="thumbnailUrl")
+    width: int | None = None
+    height: int | None = None
+    bytes: int | None = None
+    format: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class IndexPhotosRequest(BaseModel):
+    """Request body for the direct-upload index endpoint."""
+
+    photos: list[DirectUploadPhoto]

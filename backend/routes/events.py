@@ -15,7 +15,8 @@ from backend.schemas.event import (
     JoinPreviewResponse,
     PublicEventGalleryResponse,
 )
-from backend.schemas.upload import UploadJobStartResponse
+from backend.schemas.upload import CloudinaryUploadToken, IndexPhotosRequest, UploadJobStartResponse
+from backend.services.cloudinary_service import generate_event_photo_upload_params
 from backend.services.event_service import (
     create_event,
     delete_event,
@@ -28,7 +29,7 @@ from backend.services.event_service import (
     update_event,
     update_event_member_role,
 )
-from backend.services.photo_upload_service import delete_event_photo, start_event_upload_batch
+from backend.services.photo_upload_service import delete_event_photo, get_event_upload_token, index_direct_uploads, start_event_upload_batch
 
 router = APIRouter(tags=["events"])
 
@@ -150,6 +151,31 @@ async def post_event_photos(
         current_user,
         event_id=event_id,
         files=photos,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post("/api/events/{event_id}/upload-token", response_model=CloudinaryUploadToken)
+async def post_upload_token(
+    event_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> CloudinaryUploadToken:
+    """Return signed Cloudinary upload params so the browser can upload photos directly."""
+    return get_event_upload_token(current_user, event_id=event_id)
+
+
+@router.post("/api/events/{event_id}/photos/index", response_model=UploadJobStartResponse)
+async def post_index_photos(
+    event_id: str,
+    payload: IndexPhotosRequest,
+    background_tasks: BackgroundTasks,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> UploadJobStartResponse:
+    """Accept references to photos already uploaded to Cloudinary and index them asynchronously."""
+    return index_direct_uploads(
+        current_user,
+        event_id=event_id,
+        photos=payload.photos,
         background_tasks=background_tasks,
     )
 
