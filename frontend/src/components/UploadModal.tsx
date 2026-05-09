@@ -2,6 +2,7 @@ import { CheckCircle2, LoaderCircle, UploadCloud } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { apiFetch } from "../lib/api";
+import { type CloudinaryUploadResult, uploadToCloudinary } from "../lib/cloudinaryUpload";
 import { cn } from "../lib/cn";
 import type { UploadJobProgress } from "../types";
 import { Modal } from "./Modal";
@@ -25,6 +26,7 @@ export function UploadModal({
   const [submitting, setSubmitting] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<UploadJobProgress | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploadStarted = Boolean(jobId) && !isDemo && !error;
 
@@ -62,6 +64,14 @@ export function UploadModal({
     setError(null);
   }
 
+  function isZipFile(file: File) {
+    return (
+      file.type === "application/zip" ||
+      file.type === "application/x-zip-compressed" ||
+      file.name.toLowerCase().endsWith(".zip")
+    );
+  }
+
   async function handleSubmit() {
     if (!files.length) {
       setError("Select at least one photo to upload.");
@@ -71,64 +81,95 @@ export function UploadModal({
     setSubmitting(true);
     setError(null);
 
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("photos", file);
-    });
+    const imageFiles = files.filter((f) => !isZipFile(f));
+    const zipFiles = files.filter((f) => isZipFile(f));
+
+    if (isDemo) {
+      const demoFiles = files;
+      const fakeJobId = `demo-${Date.now()}`;
+      setJobId(fakeJobId);
+      setProgress({
+        jobId: fakeJobId,
+        eventId,
+        totalFiles: demoFiles.length,
+        uploadedFiles: 0,
+        indexedFiles: 0,
+        failedFiles: 0,
+        status: "queued",
+      });
+      demoFiles.forEach((file, index) => {
+        window.setTimeout(() => {
+          setProgress((current) => {
+            if (!current) return current;
+            const indexedFiles = index + 1;
+            const completed = indexedFiles >= demoFiles.length;
+            return {
+              ...current,
+              uploadedFiles: indexedFiles,
+              indexedFiles,
+              currentFileName: file.name,
+              status: completed ? "completed" : "indexing",
+            };
+          });
+          if (index + 1 >= demoFiles.length && !completedRef.current) {
+            completedRef.current = true;
+            setSubmitting(false);
+            onCompleted?.();
+          }
+        }, 350 * (index + 1));
+      });
+      return;
+    }
 
     try {
-      const response = await apiFetch<{ jobId: string }>(
-        `/api/events/${eventId}/photos`,
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
+      let lastJobId: string | null = null;
 
-      setJobId(response.jobId);
+      if (imageFiles.length > 0) {
+        const token = await apiFetch<{
+          cloudName: string;
+          apiKey: string;
+          timestamp: number;
+          signature: string;
+          folder: string;
+          eager: string;
+        }>(`/api/events/${eventId}/upload-token`, { method: "POST" });
 
-      if (isDemo) {
-        setProgress({
-          jobId: response.jobId,
-          eventId,
-          totalFiles: files.length,
-          uploadedFiles: 0,
-          indexedFiles: 0,
-          failedFiles: 0,
-          status: "queued",
-        });
-        files.forEach((file, index) => {
-          window.setTimeout(() => {
-            setProgress((current) => {
-              if (!current) {
-                return current;
-              }
+        setUploadProgress({ current: 0, total: imageFiles.length });
 
-              const indexedFiles = index + 1;
-              const completed = indexedFiles >= files.length;
+        const uploaded: CloudinaryUploadResult[] = [];
+        for (let i = 0; i < imageFiles.length; i++) {
+          const result = await uploadToCloudinary(imageFiles[i], token);
+          uploaded.push(result);
+          setUploadProgress({ current: i + 1, total: imageFiles.length });
+        }
 
-              return {
-                ...current,
-                uploadedFiles: indexedFiles,
-                indexedFiles,
-                currentFileName: file.name,
-                status: completed ? "completed" : "indexing",
-              };
-            });
+        setUploadProgress(null);
 
-            if (index + 1 >= files.length && !completedRef.current) {
-              completedRef.current = true;
-              setSubmitting(false);
-              onCompleted?.();
-            }
-          }, 350 * (index + 1));
-        });
-      } else {
-        setSubmitting(false);
-        setFiles([]);
+        const indexResponse = await apiFetch<{ jobId: string }>(
+          `/api/events/${eventId}/photos/index`,
+          { method: "POST", body: { photos: uploaded } },
+        );
+        lastJobId = indexResponse.jobId;
       }
+
+      if (zipFiles.length > 0) {
+        const formData = new FormData();
+        zipFiles.forEach((f) => formData.append("photos", f));
+        const zipResponse = await apiFetch<{ jobId: string }>(
+          `/api/events/${eventId}/photos`,
+          { method: "POST", body: formData },
+        );
+        lastJobId = zipResponse.jobId;
+      }
+
+      if (lastJobId) {
+        setJobId(lastJobId);
+      }
+      setSubmitting(false);
+      setFiles([]);
     } catch (requestError) {
       setSubmitting(false);
+      setUploadProgress(null);
       setError(
         requestError instanceof Error
           ? requestError.message
@@ -203,6 +244,32 @@ export function UploadModal({
               ))}
               {files.length > 5 ? <li>+ {files.length - 5} more</li> : null}
             </ul>
+          </div>
+        ) : null}
+
+        {uploadProgress ? (
+          <div className="space-y-3 rounded-3xl border border-ink/10 p-4">
+            <div className="flex items-center justify-between">
+              <p className="font-medium text-ink">
+                Uploading {uploadProgress.current} of {uploadProgress.total}{" "}
+                {uploadProgress.total === 1 ? "photo" : "photos"}...
+              </p>
+              <span className="text-sm text-slate">
+                {Math.round((uploadProgress.current / uploadProgress.total) * 100)}%
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-ink/10">
+              <div
+                className="h-full rounded-full bg-seafoam-500 transition-all"
+                style={{
+                  width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%`,
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-slate">
+              <LoaderCircle className="h-4 w-4 animate-spin text-seafoam-500" />
+              <span>Uploading directly to storage...</span>
+            </div>
           </div>
         ) : null}
 
