@@ -37,7 +37,8 @@ class UploadJobRecord(BaseModel):
 
     id: str
     event_id: str
-    created_by: str
+    created_by: str | None = None
+    uploader_name: str | None = None
     total_files: int
     uploaded_files: int
     indexed_files: int
@@ -113,3 +114,6 @@ class IndexPhotosRequest(BaseModel):
     """Request body for the direct-upload index endpoint."""
 
     photos: list[DirectUploadPhoto]
+    uploader_name: str | None = Field(default=None, alias="uploaderName")
+
+    model_config = ConfigDict(populate_by_name=True)

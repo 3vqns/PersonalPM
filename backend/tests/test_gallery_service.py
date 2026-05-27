@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -145,7 +146,7 @@ def test_my_photos_uses_first_matched_photo_for_download_url(monkeypatch) -> Non
     assert response.has_face_profile is True
 
 
-def test_gallery_token_creation_rejects_expired_events(monkeypatch) -> None:
+def test_gallery_token_creation_allows_existing_expired_status_after_expiry_removal(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",
         email="user@example.com",
@@ -168,11 +169,16 @@ def test_gallery_token_creation_rejects_expired_events(monkeypatch) -> None:
 
     monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: expired_event)
     monkeypatch.setattr(gallery_service, "_require_event_membership", lambda _user_id, _event: None)
+    monkeypatch.setattr(gallery_service, "_create_gallery_token", lambda **_kwargs: "token-1")
+    monkeypatch.setattr(
+        gallery_service,
+        "getSettings",
+        lambda: SimpleNamespace(frontend_origin="http://localhost:5173"),
+    )
 
-    with pytest.raises(AppError) as exc_info:
-        gallery_service.create_or_reuse_gallery_token(current_user, event_id=expired_event.id)
+    response = gallery_service.create_or_reuse_gallery_token(current_user, event_id=expired_event.id)
 
-    assert exc_info.value.code == "EVENT_EXPIRED"
+    assert response.token == "token-1"
 
 
 def test_gallery_token_is_deterministic_and_decodes_without_db(monkeypatch) -> None:

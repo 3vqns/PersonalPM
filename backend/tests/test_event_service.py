@@ -183,6 +183,9 @@ def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
 
     assert response.id == "event-1"
     assert client.inserted_event_payloads
+    assert client.inserted_event_payloads[0]["tags"] == []
+    assert client.inserted_event_payloads[0]["allow_anyone_upload"] is False
+    assert "expires_at" not in client.inserted_event_payloads[0]
     assert client.updated_event_payloads == [{"cover_url": "https://cdn.example.com/event-cover.jpg"}]
     assert client.upserted_memberships == [
         (
@@ -250,6 +253,7 @@ def test_create_event_ignores_empty_cover_upload(monkeypatch) -> None:
     assert response.id == "event-1"
     assert upload_called is False
     assert client.inserted_event_payloads
+    assert "expires_at" not in client.inserted_event_payloads[0]
     assert client.updated_event_payloads == []
 
 
