@@ -49,7 +49,6 @@ export interface EventDetail {
   coverUrl?: string;
   joinToken: string;
   role: EventRole;
-  allowAnyoneUpload?: boolean;
   creator: {
     id: string;
     name: string;
