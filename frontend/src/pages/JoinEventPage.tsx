@@ -1,6 +1,6 @@
-import { AlertCircle, ArrowRight, CalendarDays, Images, Users } from "lucide-react";
+import { AlertCircle, ArrowRight, CalendarDays, Images, Upload, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { FaceScanCapture } from "../components/FaceScanCapture";
 import { GoogleAuthButton } from "../components/GoogleAuthButton";
@@ -8,6 +8,7 @@ import { InlineAuthPanel } from "../components/InlineAuthPanel";
 import { PhotoGrid } from "../components/PhotoGrid";
 import { PhotoLightbox } from "../components/PhotoLightbox";
 import { Spinner } from "../components/Spinner";
+import { UploadModal } from "../components/UploadModal";
 import { useAuth } from "../hooks/useAuth";
 import { apiFetch } from "../lib/api";
 import { formatDate, formatLongDate } from "../lib/date";
@@ -37,6 +38,11 @@ export function JoinEventPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // Anonymous upload state
+  const [namePromptOpen, setNamePromptOpen] = useState(false);
+  const [uploaderNameDraft, setUploaderNameDraft] = useState("");
+  const [anonUploadOpen, setAnonUploadOpen] = useState(false);
+  const [anonymousUploaderName, setAnonymousUploaderName] = useState("");
 
   useEffect(() => {
     autoJoinAttemptedRef.current = false;
@@ -220,8 +226,24 @@ export function JoinEventPage() {
 
   // Unauthenticated public gallery view — full-width layout, no cramped hero column
   if (!session && publicGallery) {
+    const allowUpload = Boolean(preview.allowAnyoneUpload);
+
+    function handleAnonUploadClick() {
+      setUploaderNameDraft("");
+      setNamePromptOpen(true);
+    }
+
+    function handleNamePromptSubmit(e: React.FormEvent<HTMLFormElement>) {
+      e.preventDefault();
+      const trimmed = uploaderNameDraft.trim();
+      if (!trimmed) return;
+      setAnonymousUploaderName(trimmed);
+      setNamePromptOpen(false);
+      setAnonUploadOpen(true);
+    }
+
     return (
-      <div className="page-shell space-y-6">
+      <div className="page-shell space-y-4">
         {lightboxIndex !== null ? (
           <PhotoLightbox
             photos={publicGallery.photos}
@@ -230,15 +252,109 @@ export function JoinEventPage() {
           />
         ) : null}
 
+        {/* Name-prompt modal */}
+        {namePromptOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setNamePromptOpen(false);
+            }}
+          >
+            <div className="surface-card w-full max-w-sm space-y-5 p-6">
+              <div>
+                <h2 className="text-xl text-ink">What&apos;s your name?</h2>
+                <p className="mt-1 text-sm text-slate">
+                  We&apos;ll attach your name to the photos you upload.
+                </p>
+              </div>
+              <form className="space-y-4" onSubmit={handleNamePromptSubmit}>
+                <div className="field-shell">
+                  <input
+                    className="field-input"
+                    placeholder="Jordan Lee"
+                    value={uploaderNameDraft}
+                    maxLength={50}
+                    required
+                    autoFocus
+                    onChange={(e) => setUploaderNameDraft(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    className="secondary-button flex-1"
+                    onClick={() => setNamePromptOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-button flex-1"
+                    disabled={!uploaderNameDraft.trim()}
+                  >
+                    Continue to Upload
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Anonymous upload modal */}
+        {anonUploadOpen ? (
+          <UploadModal
+            eventId={preview.id}
+            uploaderName={anonymousUploaderName}
+            onClose={() => setAnonUploadOpen(false)}
+            onCompleted={() => {
+              setAnonUploadOpen(false);
+              // Refresh the gallery after anonymous upload
+              void apiFetch<typeof publicGallery>(
+                `/api/events/join/${token}/gallery`,
+                { auth: false },
+              ).then((refreshed) => {
+                setPublicGallery(refreshed);
+              });
+            }}
+          />
+        ) : null}
+
+        {/* Soft CTA bar */}
+        <div className="rounded-[28px] bg-seafoam-50 px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+          <p className="text-sm text-seafoam-700">
+            Sign in to see photos of yourself matched by face recognition.
+          </p>
+          <Link
+            to="/login"
+            className="secondary-button shrink-0 !text-seafoam-700 border-seafoam-200"
+          >
+            Sign in
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </div>
+
         <section className="surface-card space-y-5 p-6">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-              Event gallery
-            </p>
-            <h1 className="text-4xl text-ink">{preview.name}</h1>
-            <p className="text-sm text-slate">
-              Hosted by {preview.hostName} on {formatLongDate(preview.date)}
-            </p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+                Event gallery
+              </p>
+              <h1 className="text-4xl text-ink">{preview.name}</h1>
+              <p className="text-sm text-slate">
+                Hosted by {preview.hostName} on {formatLongDate(preview.date)}
+              </p>
+            </div>
+            {allowUpload ? (
+              <button
+                type="button"
+                className="primary-button shrink-0"
+                onClick={handleAnonUploadClick}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Upload photos
+              </button>
+            ) : null}
           </div>
 
           <div className="grid gap-3 rounded-[28px] bg-ivory/70 p-4 sm:grid-cols-3">

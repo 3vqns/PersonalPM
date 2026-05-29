@@ -11,12 +11,14 @@ interface UploadModalProps {
   eventId: string;
   onClose: () => void;
   onCompleted?: () => void;
+  uploaderName?: string;
 }
 
 export function UploadModal({
   eventId,
   onClose,
   onCompleted,
+  uploaderName,
 }: UploadModalProps) {
   const { isDemo } = useAuth();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -147,7 +149,13 @@ export function UploadModal({
 
         const indexResponse = await apiFetch<{ jobId: string }>(
           `/api/events/${eventId}/photos/index`,
-          { method: "POST", body: { photos: uploaded } },
+          {
+            method: "POST",
+            body: {
+              photos: uploaded,
+              ...(uploaderName ? { uploader_name: uploaderName } : {}),
+            },
+          },
         );
         lastJobId = indexResponse.jobId;
       }

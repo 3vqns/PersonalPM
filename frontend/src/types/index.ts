@@ -68,6 +68,7 @@ export interface JoinPreview {
   status: EventStatus;
   joinToken: string;
   alreadyJoined?: boolean;
+  allowAnyoneUpload?: boolean;
 }
 
 export interface PublicEventGalleryResponse {
