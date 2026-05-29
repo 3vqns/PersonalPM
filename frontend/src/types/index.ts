@@ -32,7 +32,7 @@ export interface EventSummary {
     avatarUrl?: string;
   }>;
   myPhotosCount?: number;
-  daysRemaining: number;
+  daysRemaining?: number;
   status: EventStatus;
   role: EventRole;
 }
@@ -42,7 +42,6 @@ export interface EventDetail {
   name: string;
   description?: string;
   date: string;
-  expiresAt: string;
   status: EventStatus;
   coverUrl?: string;
   joinToken: string;
@@ -67,7 +66,6 @@ export interface JoinPreview {
   photoCount: number;
   memberCount: number;
   status: EventStatus;
-  expiresAt: string;
   joinToken: string;
   alreadyJoined?: boolean;
 }

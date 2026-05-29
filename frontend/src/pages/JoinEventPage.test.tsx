@@ -55,7 +55,6 @@ describe("JoinEventPage", () => {
             photoCount: 42,
             memberCount: 9,
             status: "active",
-            expiresAt: "2026-07-21",
             joinToken: "demo-token",
           },
           photos: [
@@ -112,7 +111,6 @@ describe("JoinEventPage", () => {
           photoCount: 42,
           memberCount: 9,
           status: "active",
-          expiresAt: "2026-07-21",
           joinToken: "demo-token",
           alreadyJoined: false,
         };
@@ -165,7 +163,6 @@ describe("JoinEventPage", () => {
             photoCount: 42,
             memberCount: 9,
             status: "active",
-            expiresAt: "2026-07-21",
             joinToken: "demo-token",
           },
           photos: [],
@@ -215,7 +212,6 @@ describe("JoinEventPage", () => {
             photoCount: 42,
             memberCount: 9,
             status: "active",
-            expiresAt: "2026-07-21",
             joinToken: "demo-token",
           },
           photos: [],
