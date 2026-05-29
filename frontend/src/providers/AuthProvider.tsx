@@ -16,6 +16,7 @@ import {
   getDemoUser,
   isDemoMode,
 } from "../lib/demo";
+import { getCurrentSession } from "../lib/authSession";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import type { AccountResponse, AuthUser } from "../types";
@@ -24,6 +25,7 @@ interface AuthContextValue {
   session: Session | null;
   user: AuthUser | null;
   loading: boolean;
+  authError: string | null;
   isDemo: boolean;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
@@ -31,7 +33,6 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-const authSessionTimeoutMs = 4000;
 
 function mapUser(user: User | null): AuthUser | null {
   if (!user || !user.email) {
@@ -67,26 +68,12 @@ async function loadAuthUser(user: User | null) {
   }
 }
 
-async function withAuthTimeout<T>(promise: Promise<T>, message: string) {
-  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = globalThis.setTimeout(() => reject(new Error(message)), authSessionTimeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId) {
-      globalThis.clearTimeout(timeoutId);
-    }
-  }
-}
-
 export function AuthProvider({ children }: PropsWithChildren) {
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [demo, setDemo] = useState(isDemoMode());
 
   const refreshSession = useCallback(async () => {
@@ -96,23 +83,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setDemo(true);
         setSession(getDemoSession());
         setUser(getDemoUser());
+        setAuthError(null);
         return;
       }
 
-      const {
-        data: { session: activeSession },
-      } = await withAuthTimeout(
-        supabase.auth.getSession(),
-        "Supabase auth session check timed out",
-      );
+      const activeSession = await getCurrentSession();
       setSession(activeSession);
       setUser(await loadAuthUser(activeSession?.user ?? null));
       setDemo(false);
+      setAuthError(null);
     } catch (authError) {
       console.error("PictureMe auth bootstrap failed", authError);
       setSession(null);
       setUser(null);
       setDemo(false);
+      setAuthError(
+        authError instanceof Error
+          ? authError.message
+          : "PictureMe could not check your session.",
+      );
     } finally {
       setLoading(false);
     }
@@ -124,6 +113,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setSession(null);
     setUser(null);
     setDemo(false);
+    setAuthError(null);
   }, []);
 
   const startDemo = useCallback(async () => {
@@ -131,6 +121,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setDemo(true);
     setSession(getDemoSession());
     setUser(getDemoUser());
+    setAuthError(null);
     setLoading(false);
   }, []);
 
@@ -142,6 +133,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setDemo(true);
         setSession(getDemoSession());
         setUser(getDemoUser());
+        setAuthError(null);
         setLoading(false);
         return;
       }
@@ -149,6 +141,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setSession(activeSession);
       setUser(await loadAuthUser(activeSession?.user ?? null));
       setDemo(false);
+      setAuthError(null);
       setLoading(false);
 
       if (event === 'SIGNED_IN') {
@@ -171,12 +164,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       session,
       user,
       loading,
+      authError,
       isDemo: demo,
       signOut,
       refreshSession,
       startDemo,
     }),
-    [demo, loading, refreshSession, session, signOut, startDemo, user],
+    [authError, demo, loading, refreshSession, session, signOut, startDemo, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

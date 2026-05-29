@@ -33,6 +33,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"),
     )
     face_profile_bucket: str = "face-profile-images"
+    auth_user_cache_ttl_seconds: float = Field(default=30.0, ge=0, le=300)
 
     # AWS
     aws_region: str = "us-east-1"
