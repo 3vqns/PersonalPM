@@ -22,37 +22,29 @@ import {
 } from "../lib/storage";
 import type { DashboardResponse, EventSummary } from "../types";
 
-type DashboardTab = "events" | "favorites";
+type DashboardTab = "upcoming" | "past" | "favorites";
 type DashboardFilter =
   | "All"
-  | "Wedding"
-  | "Conference"
-  | "Party"
+  | "Conferences"
+  | "Weddings"
+  | "Parties"
   | "Sports"
   | "Networking";
 
 const dashboardTabs: Array<{ id: DashboardTab; label: string }> = [
-  { id: "events", label: "Events" },
+  { id: "upcoming", label: "Upcoming" },
+  { id: "past", label: "Past Events" },
   { id: "favorites", label: "Favorites" },
 ];
 
 const dashboardFilters: DashboardFilter[] = [
   "All",
-  "Wedding",
-  "Conference",
-  "Party",
+  "Conferences",
+  "Weddings",
+  "Parties",
   "Sports",
   "Networking",
 ];
-
-const TAG_OPTIONS = [
-  "Wedding",
-  "Conference",
-  "Party",
-  "Sports",
-  "Networking",
-  "Other",
-] as const;
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -61,7 +53,7 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(getFaceBannerDismissed);
-  const [activeTab, setActiveTab] = useState<DashboardTab>("events");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("upcoming");
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>("All");
   const [searchValue, setSearchValue] = useState("");
   const [favoriteIds, setFavoriteIdsState] =
@@ -116,38 +108,42 @@ export function DashboardPage() {
     ...data.createdEvents.map((event) => ({
       event,
       variant: "created" as const,
-      category: getDisplayCategory(event),
+      category: inferEventCategory(event),
     })),
     ...data.joinedEvents.map((event) => ({
       event,
       variant: "joined" as const,
-      category: getDisplayCategory(event),
+      category: inferEventCategory(event),
     })),
   ];
   const normalizedSearch = searchValue.trim().toLowerCase();
   const filteredEvents = dashboardEvents
-    .filter(({ event }) => {
-      if (!matchesTab(event, activeTab, favoriteIds)) return false;
-
-      if (activeFilter !== "All" && !event.tags.includes(activeFilter)) {
+    .filter(({ event, category }) => {
+      if (activeFilter !== "All" && category !== activeFilter) {
         return false;
       }
 
-      if (!normalizedSearch) return true;
+      if (!matchesTab(event, activeTab, favoriteIds)) {
+        return false;
+      }
 
-      return [event.name, event.hostName, ...event.tags]
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      return [event.name, event.hostName, category]
         .filter(Boolean)
         .some((value) => value?.toLowerCase().includes(normalizedSearch));
     })
-    .sort((left, right) =>
-      new Date(right.event.date).getTime() - new Date(left.event.date).getTime(),
-    );
-
-  const totalEventCount = dashboardEvents.length;
+    .sort((left, right) => sortEventsForTab(left.event, right.event, activeTab));
+  const upcomingCount = dashboardEvents.filter(({ event }) =>
+    matchesTab(event, "upcoming", favoriteIds),
+  ).length;
   const favoriteCount = dashboardEvents.filter(({ event }) =>
     favoriteIds.includes(event.id),
   ).length;
-
+  const activeTabLabel =
+    dashboardTabs.find((tab) => tab.id === activeTab)?.label ?? "Upcoming";
   const emptyStateCta = getEmptyStateCta({
     activeTab,
     activeFilter,
@@ -155,10 +151,12 @@ export function DashboardPage() {
     dashboardEventsCount: dashboardEvents.length,
     onCreate: () => setCreateOpen(true),
     onReset: () => {
-      setActiveTab("events");
+      setActiveTab("upcoming");
       setActiveFilter("All");
       setSearchValue("");
     },
+    onShowPast: () => setActiveTab("past"),
+    onShowUpcoming: () => setActiveTab("upcoming"),
   });
 
   return (
@@ -183,7 +181,7 @@ export function DashboardPage() {
               </div>
               <div className="flex flex-wrap gap-3 text-sm text-slate">
                 <span className="rounded-full bg-white/75 px-4 py-2 shadow-sm">
-                  {totalEventCount} {totalEventCount === 1 ? "event" : "events"}
+                  {upcomingCount} upcoming galleries
                 </span>
                 <span className="rounded-full bg-white/75 px-4 py-2 shadow-sm">
                   {favoriteCount} favorites saved
@@ -244,7 +242,7 @@ export function DashboardPage() {
                 type="button"
                 className="tab-pill inline-flex items-center gap-2 whitespace-nowrap border border-[#e3d6c8] bg-[#fff9f2]/75 text-ink hover:bg-white"
                 onClick={() => {
-                  setActiveTab("events");
+                  setActiveTab("upcoming");
                   setActiveFilter("All");
                   setSearchValue("");
                 }}
@@ -303,7 +301,7 @@ export function DashboardPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-              {activeTab === "favorites" ? "Favorites" : "All Events"}
+              {activeTabLabel}
             </p>
             <h2 className="text-3xl text-ink">Curated event galleries</h2>
           </div>
@@ -377,37 +375,14 @@ function CreateEventModal({
     date: "",
     description: "",
     cover: null as File | null,
-    tags: [] as string[],
-    otherTagText: "",
-    allowAnyoneUpload: false,
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function toggleTag(tag: string) {
-    setForm((prev) => ({
-      ...prev,
-      tags: prev.tags.includes(tag)
-        ? prev.tags.filter((t) => t !== tag)
-        : [...prev.tags, tag],
-      // Clear other text if deselecting Other
-      otherTagText: tag === "Other" && prev.tags.includes("Other") ? "" : prev.otherTagText,
-    }));
-  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
-
-    // Build final tags: swap "Other" placeholder for the typed text
-    const finalTags = form.tags
-      .filter((t) => t !== "Other")
-      .concat(
-        form.tags.includes("Other") && form.otherTagText.trim()
-          ? [form.otherTagText.trim()]
-          : [],
-      );
 
     const formData = new FormData();
     formData.append("name", form.name);
@@ -418,8 +393,6 @@ function CreateEventModal({
     if (form.cover) {
       formData.append("cover", form.cover);
     }
-    formData.append("tags", JSON.stringify(finalTags));
-    formData.append("allow_anyone_upload", String(form.allowAnyoneUpload));
 
     try {
       const response = await apiFetch<{ id: string }>("/api/events", {
@@ -501,65 +474,6 @@ function CreateEventModal({
             />
           </div>
         </label>
-
-        {/* Tags */}
-        <div className="space-y-2">
-          <span className="text-sm font-medium text-ink">
-            Tags <span className="font-normal text-slate">(optional, select all that apply)</span>
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {TAG_OPTIONS.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                className={cn(
-                  "rounded-full border px-4 py-1.5 text-sm font-medium transition",
-                  form.tags.includes(tag)
-                    ? "border-[#4b3528] bg-ink text-[#fff8f0]"
-                    : "border-[#e3d6c8] bg-[#fff9f2]/75 text-ink hover:bg-white",
-                )}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-          {form.tags.includes("Other") ? (
-            <div className="field-shell">
-              <input
-                className="field-input"
-                value={form.otherTagText}
-                onChange={(event) =>
-                  setForm((value) => ({ ...value, otherTagText: event.target.value }))
-                }
-                placeholder="Describe your event type (e.g. Birthday Party)"
-                maxLength={30}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {/* Allow anyone to upload */}
-        <label className="flex cursor-pointer items-start gap-3 rounded-[16px] border border-[#e3d6c8] bg-[#fff9f2]/60 p-4">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 accent-seafoam-500"
-            checked={form.allowAnyoneUpload}
-            onChange={(event) =>
-              setForm((value) => ({
-                ...value,
-                allowAnyoneUpload: event.target.checked,
-              }))
-            }
-          />
-          <div>
-            <p className="text-sm font-medium text-ink">Allow anyone to upload</p>
-            <p className="mt-0.5 text-xs text-slate">
-              Anyone with the event link can upload photos without signing in.
-            </p>
-          </div>
-        </label>
-
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <div className="flex flex-col gap-3 sm:flex-row">
           <button type="button" className="secondary-button flex-1" onClick={onClose}>
@@ -574,9 +488,30 @@ function CreateEventModal({
   );
 }
 
-/** Returns the primary display category for an event card (first tag or generic fallback). */
-function getDisplayCategory(event: EventSummary): string {
-  return event.tags?.[0] ?? "Event";
+function inferEventCategory(event: EventSummary): DashboardFilter {
+  const haystack = `${event.name} ${event.hostName ?? ""}`.toLowerCase();
+
+  if (/(wedding|reception|bridal|ceremony)/.test(haystack)) {
+    return "Weddings";
+  }
+
+  if (/(hack|conference|summit|expo|launch|demo|keynote)/.test(haystack)) {
+    return "Conferences";
+  }
+
+  if (/(party|gala|birthday|rooftop|celebration)/.test(haystack)) {
+    return "Parties";
+  }
+
+  if (/(sport|game|match|tournament|race|run)/.test(haystack)) {
+    return "Sports";
+  }
+
+  if (/(network|meetup|mixer|social)/.test(haystack)) {
+    return "Networking";
+  }
+
+  return "Conferences";
 }
 
 function matchesTab(
@@ -587,8 +522,27 @@ function matchesTab(
   if (activeTab === "favorites") {
     return favoriteIds.includes(event.id);
   }
-  // "events" tab shows everything
-  return true;
+
+  const eventDate = new Date(`${event.date}T23:59:59`);
+  const now = new Date();
+  const isPastEvent = eventDate.getTime() < now.getTime();
+
+  return activeTab === "past" ? isPastEvent : !isPastEvent;
+}
+
+function sortEventsForTab(
+  left: EventSummary,
+  right: EventSummary,
+  activeTab: DashboardTab,
+) {
+  const leftDate = new Date(left.date).getTime();
+  const rightDate = new Date(right.date).getTime();
+
+  if (activeTab === "past") {
+    return rightDate - leftDate;
+  }
+
+  return leftDate - rightDate;
 }
 
 function getEmptyStateTitle({
@@ -614,7 +568,7 @@ function getEmptyStateTitle({
     return "Create your first event";
   }
 
-  return "No events yet";
+  return activeTab === "past" ? "No past events yet" : "No upcoming events right now";
 }
 
 function getEmptyStateDescription({
@@ -633,14 +587,16 @@ function getEmptyStateDescription({
   }
 
   if (normalizedSearch || activeFilter !== "All") {
-    return "Try another keyword or clear the filters to widen the gallery view.";
+    return "Try another keyword, switch tabs, or clear the filters to widen the gallery view.";
   }
 
   if (!dashboardEventsCount) {
     return "Event hosts can create a gallery, upload a cover image, and share a QR code with guests.";
   }
 
-  return "Create an event to start sharing your galleries.";
+  return activeTab === "past"
+    ? "Your completed galleries will settle here once the event date has passed."
+    : "Create a new event or open the Past Events tab to revisit older galleries.";
 }
 
 function getEmptyStateCta({
@@ -650,6 +606,8 @@ function getEmptyStateCta({
   dashboardEventsCount,
   onCreate,
   onReset,
+  onShowPast,
+  onShowUpcoming,
 }: {
   activeTab: DashboardTab;
   activeFilter: DashboardFilter;
@@ -657,6 +615,8 @@ function getEmptyStateCta({
   dashboardEventsCount: number;
   onCreate: () => void;
   onReset: () => void;
+  onShowPast: () => void;
+  onShowUpcoming: () => void;
 }) {
   if (activeTab === "favorites" || normalizedSearch || activeFilter !== "All") {
     return {
@@ -665,8 +625,22 @@ function getEmptyStateCta({
     };
   }
 
+  if (!dashboardEventsCount) {
+    return {
+      label: "Create event",
+      onClick: onCreate,
+    };
+  }
+
+  if (activeTab === "past") {
+    return {
+      label: "View upcoming",
+      onClick: onShowUpcoming,
+    };
+  }
+
   return {
-    label: "Create event",
-    onClick: onCreate,
+    label: "View past events",
+    onClick: onShowPast,
   };
 }
