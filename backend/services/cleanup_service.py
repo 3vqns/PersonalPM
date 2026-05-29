@@ -58,13 +58,13 @@ def _cleanup_one_event(event: EventRecord) -> CleanupEventResult:
     if public_ids:
         try:
             deleted_map = delete_event_photo_assets(public_ids=public_ids)
-            result.cloudinary_deleted = sum(1 for public_id in public_ids if deleted_map.get(public_id) in {"deleted", "not_found"})
-            result.cloudinary_failed = len(public_ids) - result.cloudinary_deleted
-            cloudinary_success = result.cloudinary_failed == 0
+            result.cloudinaryDeleted = sum(1 for public_id in public_ids if deleted_map.get(public_id) in {"deleted", "not_found"})
+            result.cloudinaryFailed = len(public_ids) - result.cloudinaryDeleted
+            cloudinary_success = result.cloudinaryFailed == 0
             if not cloudinary_success:
                 result.errors.append("Some Cloudinary assets could not be deleted")
         except AppError as exc:
-            result.cloudinary_failed = len(public_ids)
+            result.cloudinaryFailed = len(public_ids)
             result.errors.append(exc.message)
             cloudinary_success = False
 
@@ -77,15 +77,15 @@ def _cleanup_one_event(event: EventRecord) -> CleanupEventResult:
             event.id,
             extra={
                 "event_id": event.id,
-                "cloudinary_failed": result.cloudinary_failed,
+                "cloudinary_failed": result.cloudinaryFailed,
                 "errors": result.errors,
             },
         )
         return result
 
     try:
-        result.user_matches_cleared = _delete_rows("user_photo_matches", event.id)
-        result.face_index_cleared = _delete_rows("face_index", event.id)
+        result.userMatchesCleared = _delete_rows("user_photo_matches", event.id)
+        result.faceIndexCleared = _delete_rows("face_index", event.id)
         _clear_photo_delivery_fields(event.id)
         _mark_event_expired(event.id)
         result.status = "cleaned"
@@ -93,10 +93,10 @@ def _cleanup_one_event(event: EventRecord) -> CleanupEventResult:
             "Expired event cleanup completed",
             extra={
                 "event_id": event.id,
-                "photos_considered": result.photos_considered,
-                "cloudinary_deleted": result.cloudinary_deleted,
-                "user_matches_cleared": result.user_matches_cleared,
-                "face_index_cleared": result.face_index_cleared,
+                "photos_considered": result.photosConsidered,
+                "cloudinary_deleted": result.cloudinaryDeleted,
+                "user_matches_cleared": result.userMatchesCleared,
+                "face_index_cleared": result.faceIndexCleared,
             },
         )
     except AppError as exc:

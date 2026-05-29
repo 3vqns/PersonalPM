@@ -348,7 +348,7 @@ def _list_matchable_event_members(event_id: str) -> list[EventMemberRecord]:
 def _list_active_events_for_user(user_id: str) -> list[EventRecord]:
     try:
         created_response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
         ).eq("creator_id", user_id).eq("status", "active").execute()
         membership_response = get_supabase_admin_client().table("event_members").select("event_id").eq("user_id", user_id).execute()
     except Exception as exc:
@@ -359,7 +359,7 @@ def _list_active_events_for_user(user_id: str) -> list[EventRecord]:
     if membership_ids:
         try:
             member_events_response = get_supabase_admin_client().table("events").select(
-                "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
+                "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
             ).in_("id", membership_ids).eq("status", "active").execute()
         except Exception as exc:
             raise AppError("PictureMe could not load member events for rematch", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -375,7 +375,7 @@ def _list_active_events_for_user(user_id: str) -> list[EventRecord]:
 def _get_active_event_or_none(event_id: str) -> EventRecord | None:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load an event for matching", code="EVENT_FETCH_FAILED", status=500) from exc
