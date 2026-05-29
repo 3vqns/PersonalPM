@@ -22,6 +22,8 @@ export interface EventSummary {
   id: string;
   name: string;
   date: string;
+  tags: string[];
+  allowAnyoneUpload: boolean;
   coverUrl?: string;
   hostName?: string;
   photoCount: number;
@@ -32,7 +34,6 @@ export interface EventSummary {
     avatarUrl?: string;
   }>;
   myPhotosCount?: number;
-  daysRemaining?: number;
   status: EventStatus;
   role: EventRole;
 }
@@ -42,6 +43,8 @@ export interface EventDetail {
   name: string;
   description?: string;
   date: string;
+  tags: string[];
+  allowAnyoneUpload: boolean;
   status: EventStatus;
   coverUrl?: string;
   joinToken: string;
