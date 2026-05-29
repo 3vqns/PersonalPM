@@ -336,12 +336,7 @@ export function EventGalleryPage() {
           <ShareEventPanel eventName={event.name} joinToken={event.joinToken} />
         ) : null}
 
-        {event.status === "expired" ? (
-          <div className="rounded-[28px] bg-amber-50 px-5 py-6 text-sm leading-6 text-amber-600">
-            This gallery has expired. Photos were deleted after 30 days.
-          </div>
-        ) : (
-          <div className="space-y-5">
+        <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="surface-card flex w-fit gap-2 p-2 shadow-none">
                 <button
@@ -420,7 +415,6 @@ export function EventGalleryPage() {
               />
             )}
           </div>
-        )}
       </section>
     </div>
   );

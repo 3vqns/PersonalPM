@@ -29,7 +29,7 @@ export function Navbar() {
           <div>
             <p className="text-lg font-semibold text-ink">PictureMe</p>
             <p className="text-xs uppercase tracking-[0.28em] text-slate">
-              AI event photos
+              event photos
             </p>
           </div>
         </Link>
