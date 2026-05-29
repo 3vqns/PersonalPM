@@ -1,6 +1,8 @@
-import { X } from "lucide-react";
-import { useEffect } from "react";
+import { ArrowLeft, Images, User, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { ShareEventPanelVertical } from "./ShareEventPanelVertical";
+
+type ShareOption = "my" | "full";
 
 interface ShareModalProps {
   eventName: string;
@@ -19,30 +21,56 @@ export function ShareModal({
   hasMyPhotos,
   onClose,
 }: ShareModalProps) {
+  const [selected, setSelected] = useState<ShareOption | null>(null);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (selected) {
+          setSelected(null);
+        } else {
+          onClose();
+        }
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [onClose, selected]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
       style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="surface-card relative w-full max-w-3xl space-y-6 p-6 sm:p-8">
+      <div className="surface-card relative my-auto w-full max-w-md space-y-6 p-6 sm:p-8">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-              Share
-            </p>
-            <h2 className="text-2xl text-ink">Share gallery</h2>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {selected ? (
+              <button
+                type="button"
+                aria-label="Back to share options"
+                className="secondary-button !px-3 !py-3"
+                onClick={() => setSelected(null)}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+            ) : null}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+                Share
+              </p>
+              <h2 className="text-2xl text-ink">
+                {selected === "my"
+                  ? "Share your photos"
+                  : selected === "full"
+                    ? "Share full gallery"
+                    : "Share gallery"}
+              </h2>
+            </div>
           </div>
           <button
             type="button"
@@ -57,20 +85,53 @@ export function ShareModal({
         {/* Divider */}
         <div className="h-px w-full bg-ink/8" />
 
-        {/* Two columns */}
-        <div className="grid gap-6 sm:grid-cols-2">
-          {/* ── Share My Photos ── */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-                My photos
-              </p>
-              <h3 className="text-lg text-ink">Share your matched photos</h3>
-              <p className="mt-1 text-sm leading-5 text-slate">
-                Anyone with this link can view only your matched photos — no account needed.
-              </p>
-            </div>
+        {/* Step 1 — Picker */}
+        {selected === null ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              className="flex flex-col items-start gap-3 rounded-[28px] border border-ink/10 bg-ivory/60 p-5 text-left transition hover:border-seafoam-400 hover:bg-seafoam-50 active:scale-[0.98]"
+              onClick={() => setSelected("my")}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-seafoam-100 text-seafoam-600">
+                <User className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+                  My photos
+                </p>
+                <h3 className="mt-0.5 text-base font-semibold text-ink">Share My Photos</h3>
+                <p className="mt-1 text-sm leading-5 text-slate">
+                  Share only your matched photos — no account needed.
+                </p>
+              </div>
+            </button>
 
+            <button
+              type="button"
+              className="flex flex-col items-start gap-3 rounded-[28px] border border-ink/10 bg-ivory/60 p-5 text-left transition hover:border-seafoam-400 hover:bg-seafoam-50 active:scale-[0.98]"
+              onClick={() => setSelected("full")}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-seafoam-100 text-seafoam-600">
+                <Images className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+                  Full gallery
+                </p>
+                <h3 className="mt-0.5 text-base font-semibold text-ink">Share Full Gallery</h3>
+                <p className="mt-1 text-sm leading-5 text-slate">
+                  Share all event photos — no account needed.
+                </p>
+              </div>
+            </button>
+          </div>
+        ) : selected === "my" ? (
+          /* Step 2 — My Photos */
+          <div className="space-y-4">
+            <p className="text-sm leading-5 text-slate">
+              Anyone with this link can view only your matched photos — no account needed.
+            </p>
             {galleryShareUrl ? (
               <ShareEventPanelVertical
                 eventName={eventName}
@@ -84,7 +145,6 @@ export function ShareModal({
                 {galleryShareError}
               </div>
             ) : hasMyPhotos ? (
-              // URL is actively being generated
               <div className="flex flex-col items-center gap-4 rounded-[28px] bg-ivory/70 p-5">
                 <div className="h-[140px] w-[140px] animate-pulse rounded-2xl bg-ink/10" />
                 <div className="w-full space-y-2">
@@ -94,31 +154,21 @@ export function ShareModal({
                 <p className="text-xs text-slate">Generating your personal link…</p>
               </div>
             ) : (
-              // User has no matched photos — nothing to share yet
               <div className="rounded-3xl border border-ink/10 bg-ivory/70 px-4 py-5 text-center">
                 <p className="text-sm font-medium text-ink">No matched photos yet</p>
                 <p className="mt-1 text-xs leading-5 text-slate">
-                  Your personal gallery link will appear here once PictureMe finds photos of you in this event.
+                  Your personal gallery link will appear here once PictureMe finds photos of you in
+                  this event.
                 </p>
               </div>
             )}
           </div>
-
-          {/* ── Vertical divider (desktop) / horizontal divider (mobile) ── */}
-          <div className="hidden sm:block absolute left-1/2 top-[7rem] bottom-8 w-px bg-ink/8 -translate-x-1/2" />
-          <div className="block sm:hidden h-px w-full bg-ink/8" />
-
-          {/* ── Share Full Gallery ── */}
+        ) : (
+          /* Step 2 — Full Gallery */
           <div className="space-y-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-                Full gallery
-              </p>
-              <h3 className="text-lg text-ink">Share the full event gallery</h3>
-              <p className="mt-1 text-sm leading-5 text-slate">
-                Anyone with this link can view all event photos — no account needed.
-              </p>
-            </div>
+            <p className="text-sm leading-5 text-slate">
+              Anyone with this link can view all event photos — no account needed.
+            </p>
             <ShareEventPanelVertical
               eventName={eventName}
               joinToken={joinToken}
@@ -127,7 +177,7 @@ export function ShareModal({
               downloadLabel="Download QR"
             />
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
