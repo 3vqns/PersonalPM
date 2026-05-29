@@ -41,6 +41,8 @@ Use these rules before merging frontend, backend, or Supabase changes. The goal 
 ## Frontend Rules
 
 - Every protected route must handle loading, request failure, empty data, and render failure states.
+- Never initialize a signed-in browser session as visibly signed out. Hydrate from Supabase's persisted auth session when it is not expired, validate in the background, and keep the current session visible unless Supabase emits an explicit `SIGNED_OUT` event.
+- Public navigation and home routes must treat `loading && !session` as an unknown auth state, not as a signed-out state. Do not show login/signup CTAs or landing-page redirects until auth resolution finishes.
 - Any JSX component used by a route must be explicitly imported in that route file.
 - Route tests must cover special query-state branches such as `?created=1`, `?denied=1`, and public join/gallery paths.
 - Keep utility pages focused on the workflow; do not add landing-page composition to dashboard, event, or settings screens.

@@ -67,7 +67,45 @@ describe("AuthProvider", () => {
   });
 
   afterEach(() => {
+    window.localStorage.clear();
     vi.clearAllMocks();
+  });
+
+  it("hydrates the visible user from the cached Supabase session", async () => {
+    window.localStorage.setItem(
+      "sb-test-ref-auth-token",
+      JSON.stringify({
+        access_token: "cached-token",
+        refresh_token: "cached-refresh",
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        user: {
+          id: "user-cached",
+          email: "cached@example.com",
+          user_metadata: {
+            name: "Cached Name",
+          },
+        },
+      }),
+    );
+    mockedApiFetch.mockResolvedValue({
+      user: {
+        id: "user-cached",
+        email: "cached@example.com",
+        name: "Backend Cached Name",
+        hasFaceProfile: true,
+      },
+    });
+
+    renderAuthProvider();
+
+    expect(screen.getByText("Cached Name")).toBeInTheDocument();
+    expect(screen.queryByText("Loading")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Backend Cached Name")).toBeInTheDocument();
+      expect(screen.getByText("Has face profile")).toBeInTheDocument();
+    });
+    expect(mockedGetSession).not.toHaveBeenCalled();
   });
 
   it("loads the auth user from the backend account endpoint", async () => {

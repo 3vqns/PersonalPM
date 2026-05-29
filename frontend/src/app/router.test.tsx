@@ -50,7 +50,7 @@ describe("AppRouter", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the public landing page while auth is still loading", () => {
+  it("keeps the home route neutral while auth is still loading", () => {
     mockedUseAuth.mockReturnValue({
       loading: true,
       session: null,
@@ -67,7 +67,7 @@ describe("AppRouter", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Landing page ready")).toBeInTheDocument();
+    expect(screen.queryByText("Landing page ready")).not.toBeInTheDocument();
     expect(screen.queryByText("Loading PictureMe...")).not.toBeInTheDocument();
   });
 });

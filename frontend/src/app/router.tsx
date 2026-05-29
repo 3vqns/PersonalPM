@@ -30,10 +30,14 @@ function AppLayout() {
 }
 
 function HomeRoute() {
-  const { session } = useAuth();
+  const { loading, session } = useAuth();
 
   if (session) {
     return <Navigate replace to="/dashboard" />;
+  }
+
+  if (loading) {
+    return null;
   }
 
   return <LandingPage />;

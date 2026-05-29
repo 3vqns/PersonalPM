@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from "react";
@@ -16,7 +17,7 @@ import {
   getDemoUser,
   isDemoMode,
 } from "../lib/demo";
-import { getCurrentSession } from "../lib/authSession";
+import { getCurrentSession, readCachedSupabaseSession } from "../lib/authSession";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import type { AccountResponse, AuthUser } from "../types";
@@ -33,6 +34,14 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+interface AuthState {
+  session: Session | null;
+  user: AuthUser | null;
+  loading: boolean;
+  authError: string | null;
+  demo: boolean;
+}
 
 function mapUser(user: User | null): AuthUser | null {
   if (!user || !user.email) {
@@ -53,6 +62,27 @@ function mapUser(user: User | null): AuthUser | null {
   };
 }
 
+function getInitialAuthState(): AuthState {
+  if (isDemoMode()) {
+    return {
+      session: getDemoSession(),
+      user: getDemoUser(),
+      loading: false,
+      authError: null,
+      demo: true,
+    };
+  }
+
+  const cachedSession = readCachedSupabaseSession();
+  return {
+    session: cachedSession,
+    user: mapUser(cachedSession?.user ?? null),
+    loading: !cachedSession,
+    authError: null,
+    demo: false,
+  };
+}
+
 async function loadAuthUser(user: User | null) {
   if (!user) {
     return null;
@@ -70,33 +100,45 @@ async function loadAuthUser(user: User | null) {
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const navigate = useNavigate();
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [demo, setDemo] = useState(isDemoMode());
+  const [initialAuthState] = useState<AuthState>(() => getInitialAuthState());
+  const [session, setSession] = useState<Session | null>(initialAuthState.session);
+  const [user, setUser] = useState<AuthUser | null>(initialAuthState.user);
+  const [loading, setLoading] = useState(initialAuthState.loading);
+  const [authError, setAuthError] = useState<string | null>(
+    initialAuthState.authError,
+  );
+  const [demo, setDemo] = useState(initialAuthState.demo);
+  const sessionRef = useRef<Session | null>(initialAuthState.session);
+
+  const setAuthState = useCallback(
+    (nextSession: Session | null, nextUser: AuthUser | null, nextDemo: boolean) => {
+      sessionRef.current = nextSession;
+      setSession(nextSession);
+      setUser(nextUser);
+      setDemo(nextDemo);
+    },
+    [],
+  );
 
   const refreshSession = useCallback(async () => {
-    setLoading(true);
+    const hadVisibleSession = Boolean(sessionRef.current);
+    setLoading(!hadVisibleSession);
     try {
       if (isDemoMode()) {
-        setDemo(true);
-        setSession(getDemoSession());
-        setUser(getDemoUser());
+        setAuthState(getDemoSession(), getDemoUser(), true);
         setAuthError(null);
         return;
       }
 
       const activeSession = await getCurrentSession();
-      setSession(activeSession);
-      setUser(await loadAuthUser(activeSession?.user ?? null));
-      setDemo(false);
+      const activeUser = await loadAuthUser(activeSession?.user ?? null);
+      setAuthState(activeSession, activeUser, false);
       setAuthError(null);
     } catch (authError) {
       console.error("PictureMe auth bootstrap failed", authError);
-      setSession(null);
-      setUser(null);
-      setDemo(false);
+      if (!sessionRef.current) {
+        setAuthState(null, null, false);
+      }
       setAuthError(
         authError instanceof Error
           ? authError.message
@@ -105,50 +147,52 @@ export function AuthProvider({ children }: PropsWithChildren) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setAuthState]);
 
   const signOut = useCallback(async () => {
     disableDemoMode();
     await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
-    setDemo(false);
+    setAuthState(null, null, false);
     setAuthError(null);
-  }, []);
+  }, [setAuthState]);
 
   const startDemo = useCallback(async () => {
     enableDemoMode();
-    setDemo(true);
-    setSession(getDemoSession());
-    setUser(getDemoUser());
+    setAuthState(getDemoSession(), getDemoUser(), true);
     setAuthError(null);
     setLoading(false);
-  }, []);
+  }, [setAuthState]);
 
   useEffect(() => {
     void refreshSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, activeSession) => {
       if (isDemoMode()) {
-        setDemo(true);
-        setSession(getDemoSession());
-        setUser(getDemoUser());
+        setAuthState(getDemoSession(), getDemoUser(), true);
         setAuthError(null);
         setLoading(false);
         return;
       }
 
-      setSession(activeSession);
-      setUser(await loadAuthUser(activeSession?.user ?? null));
-      setDemo(false);
+      if (!activeSession && sessionRef.current && event !== "SIGNED_OUT") {
+        setLoading(false);
+        return;
+      }
+
+      if (event === "INITIAL_SESSION" && isSameSession(activeSession, sessionRef.current)) {
+        setLoading(false);
+        return;
+      }
+
+      const activeUser = await loadAuthUser(activeSession?.user ?? null);
+      setAuthState(activeSession, activeUser, false);
       setAuthError(null);
       setLoading(false);
 
-      if (event === 'SIGNED_IN') {
-        const returnTo = localStorage.getItem('returnTo');
+      if (event === "SIGNED_IN") {
+        const returnTo = localStorage.getItem("returnTo");
         if (returnTo) {
-          localStorage.removeItem('returnTo');
-          // Use navigate to redirect
+          localStorage.removeItem("returnTo");
           navigate(returnTo);
         }
       }
@@ -157,7 +201,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [refreshSession]);
+  }, [navigate, refreshSession, setAuthState]);
 
   const value = useMemo(
     () => ({
@@ -174,6 +218,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function isSameSession(firstSession: Session | null, secondSession: Session | null) {
+  return (
+    Boolean(firstSession?.access_token) &&
+    firstSession?.access_token === secondSession?.access_token
+  );
 }
 
 export function useAuthContext() {

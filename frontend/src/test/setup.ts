@@ -1,5 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 
+vi.stubEnv("VITE_API_BASE_URL", "http://localhost:8000");
+vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "test-publishable-key");
+vi.stubEnv("VITE_SUPABASE_URL", "https://test-ref.supabase.co");
+
 Object.defineProperty(globalThis, "matchMedia", {
   writable: true,
   value: (query: string) => ({
