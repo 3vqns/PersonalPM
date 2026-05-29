@@ -134,7 +134,10 @@ export function UploadModal({
           signature: string;
           folder: string;
           eager: string;
-        }>(`/api/events/${eventId}/upload-token`, { method: "POST" });
+        }>(`/api/events/${eventId}/upload-token`, {
+          method: "POST",
+          auth: uploaderName ? "optional" : true,
+        });
 
         setUploadProgress({ current: 0, total: imageFiles.length });
 
@@ -151,6 +154,7 @@ export function UploadModal({
           `/api/events/${eventId}/photos/index`,
           {
             method: "POST",
+            auth: uploaderName ? "optional" : true,
             body: {
               photos: uploaded,
               ...(uploaderName ? { uploader_name: uploaderName } : {}),
@@ -165,7 +169,7 @@ export function UploadModal({
         zipFiles.forEach((f) => formData.append("photos", f));
         const zipResponse = await apiFetch<{ jobId: string }>(
           `/api/events/${eventId}/photos`,
-          { method: "POST", body: formData },
+          { method: "POST", body: formData, auth: uploaderName ? "optional" : true },
         );
         lastJobId = zipResponse.jobId;
       }
