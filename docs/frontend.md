@@ -2,24 +2,23 @@
 
 ## Purpose
 
-The frontend in [frontend](/Users/earmantrading23/Documents/PictureMe/frontend) is the browser application for PictureMe. It should keep Supabase browser auth, but backend-owned product data flows are now implemented and should move through the FastAPI API instead of direct Supabase table access.
+The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is the browser application for PictureMe. It keeps Supabase browser auth for login/session handling while product data flows through the FastAPI API.
 
 ## Key Files
 
-- [frontend/src/lib/supabase.ts](/Users/earmantrading23/Documents/PictureMe/frontend/src/lib/supabase.ts): Initializes the Supabase browser auth client from Vite environment variables.
-- [frontend/src/providers/AuthProvider.tsx](/Users/earmantrading23/Documents/PictureMe/frontend/src/providers/AuthProvider.tsx): Tracks the current session and still contains one direct `public.users` read that should be replaced with `GET /api/account`.
-- [frontend/src/lib/api.ts](/Users/earmantrading23/Documents/PictureMe/frontend/src/lib/api.ts): Central request layer. It should prefer the backend and still contains a fallback branch that routes `/api/*` traffic into Supabase when `VITE_API_BASE_URL` is missing.
-- [frontend/src/lib/supabaseApi.ts](/Users/earmantrading23/Documents/PictureMe/frontend/src/lib/supabaseApi.ts): Temporary Supabase-backed implementation for routes that now exist in the backend. This file should be retired.
-- [frontend/src/pages](/Users/earmantrading23/Documents/PictureMe/frontend/src/pages): Route-level UI for signup, login, dashboard, event gallery, event settings, join flow, and account settings.
-- [frontend/src/components](/Users/earmantrading23/Documents/PictureMe/frontend/src/components): Reusable UI building blocks such as navigation, upload modal, photo grids, and route guards.
+- [frontend/src/lib/supabase.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/supabase.ts): Initializes the Supabase browser auth client from Vite environment variables.
+- [frontend/src/lib/authSession.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/authSession.ts): Reads Supabase's persisted browser session, avoids repeated `getSession()` calls for healthy tokens, and falls back to cached valid credentials if a session check times out.
+- [frontend/src/providers/AuthProvider.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/providers/AuthProvider.tsx): Tracks the current session, hydrates the visible user from a cached Supabase session on refresh, and enriches account state through `GET /api/account`.
+- [frontend/src/lib/api.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/api.ts): Central request layer. It attaches the current Supabase access token and sends non-demo product traffic to the backend API through `VITE_API_BASE_URL`.
+- [frontend/src/pages](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages): Route-level UI for signup, login, dashboard, event gallery, event settings, join flow, and account settings.
+- [frontend/src/components](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components): Reusable UI building blocks such as navigation, upload modal, photo grids, and route guards.
 
 ## Remaining Backend Integration Cleanup
 
 - Keep Supabase Auth in the browser for login/session handling.
+- Keep refresh behavior steady: cached non-expired sessions should remain visible while backend account state refreshes.
 - Set `VITE_API_BASE_URL` in every non-demo environment so authenticated product flows always hit the backend.
-- Remove the direct-to-Supabase API fallback in [frontend/src/lib/api.ts](/Users/earmantrading23/Documents/PictureMe/frontend/src/lib/api.ts).
-- Remove the temporary route shim in [frontend/src/lib/supabaseApi.ts](/Users/earmantrading23/Documents/PictureMe/frontend/src/lib/supabaseApi.ts). It still references stale fields such as `face_indexed_at` and `rekognition_face_id`.
-- Replace the direct `users` table read in [frontend/src/providers/AuthProvider.tsx](/Users/earmantrading23/Documents/PictureMe/frontend/src/providers/AuthProvider.tsx) with `GET /api/account`.
+- Keep `GET /api/account` as the source for enriched user/profile state after the initial cached session render.
 - Treat the backend as the source of truth for:
   - dashboard aggregates
   - account/profile state

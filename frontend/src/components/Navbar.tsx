@@ -13,7 +13,7 @@ import { useAuth } from "../hooks/useAuth";
 
 export function Navbar() {
   const navigate = useNavigate();
-  const { user, session, signOut, isDemo, startDemo } = useAuth();
+  const { user, session, loading, signOut, isDemo, startDemo } = useAuth();
   const [open, setOpen] = useState(false);
 
   async function handleSignOut() {
@@ -111,6 +111,8 @@ export function Navbar() {
               </div>
             ) : null}
           </div>
+        ) : loading ? (
+          <div className="h-11 w-40" aria-hidden="true" />
         ) : (
           <div className="flex items-center gap-2">
             <button
