@@ -320,7 +320,7 @@ export function EventGalleryPage() {
               <Share2 className="mr-2 h-4 w-4" />
               Share
             </button>
-            {event.role === "creator" || event.role === "admin" ? (
+            {event.role === "creator" || event.role === "admin" || event.allowAnyoneUpload ? (
               <button
                 type="button"
                 className="primary-button"
