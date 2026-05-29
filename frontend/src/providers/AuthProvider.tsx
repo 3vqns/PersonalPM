@@ -31,6 +31,7 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const authSessionTimeoutMs = 4000;
 
 function mapUser(user: User | null): AuthUser | null {
   if (!user || !user.email) {
@@ -66,6 +67,21 @@ async function loadAuthUser(user: User | null) {
   }
 }
 
+async function withAuthTimeout<T>(promise: Promise<T>, message: string) {
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = globalThis.setTimeout(() => reject(new Error(message)), authSessionTimeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
@@ -75,21 +91,31 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const refreshSession = useCallback(async () => {
     setLoading(true);
-    if (isDemoMode()) {
-      setDemo(true);
-      setSession(getDemoSession());
-      setUser(getDemoUser());
-      setLoading(false);
-      return;
-    }
+    try {
+      if (isDemoMode()) {
+        setDemo(true);
+        setSession(getDemoSession());
+        setUser(getDemoUser());
+        return;
+      }
 
-    const {
-      data: { session: activeSession },
-    } = await supabase.auth.getSession();
-    setSession(activeSession);
-    setUser(await loadAuthUser(activeSession?.user ?? null));
-    setDemo(false);
-    setLoading(false);
+      const {
+        data: { session: activeSession },
+      } = await withAuthTimeout(
+        supabase.auth.getSession(),
+        "Supabase auth session check timed out",
+      );
+      setSession(activeSession);
+      setUser(await loadAuthUser(activeSession?.user ?? null));
+      setDemo(false);
+    } catch (authError) {
+      console.error("PictureMe auth bootstrap failed", authError);
+      setSession(null);
+      setUser(null);
+      setDemo(false);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const signOut = useCallback(async () => {
