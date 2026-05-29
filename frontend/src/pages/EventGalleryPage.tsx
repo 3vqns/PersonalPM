@@ -2,6 +2,7 @@ import {
   AlertCircle,
   Images,
   Settings,
+  Share2,
   Sparkles,
   Upload,
   UserRoundSearch,
@@ -11,7 +12,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { PhotoGrid } from "../components/PhotoGrid";
 import { PhotoLightbox } from "../components/PhotoLightbox";
-import { ShareEventPanel } from "../components/ShareEventPanel";
+import { ShareModal } from "../components/ShareModal";
 import { Spinner } from "../components/Spinner";
 import { UploadModal } from "../components/UploadModal";
 import { useAuth } from "../hooks/useAuth";
@@ -45,6 +46,7 @@ export function EventGalleryPage() {
   const [lightboxSource, setLightboxSource] = useState<LightboxSource>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [galleryShareUrl, setGalleryShareUrl] = useState<string | null>(null);
   const [galleryShareError, setGalleryShareError] = useState<string | null>(null);
 
@@ -268,6 +270,16 @@ export function EventGalleryPage() {
         />
       ) : null}
 
+      {shareOpen ? (
+        <ShareModal
+          eventName={event.name}
+          joinToken={event.joinToken}
+          galleryShareUrl={galleryShareUrl}
+          galleryShareError={galleryShareError}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
+
       {lightboxSource ? (
         <PhotoLightbox
           photos={galleryPhotos}
@@ -298,6 +310,14 @@ export function EventGalleryPage() {
                 Event settings
               </Link>
             ) : null}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="mr-2 h-4 w-4" />
+              Share
+            </button>
             {event.role === "creator" || event.role === "admin" ? (
               <button
                 type="button"
@@ -357,38 +377,6 @@ export function EventGalleryPage() {
                 </p>
               )}
             </div>
-
-            {activeTab === "my" && myPhotos.length > 0 ? (
-              galleryShareUrl ? (
-                <ShareEventPanel
-                  eventName={event.name}
-                  shareUrl={galleryShareUrl}
-                  eyebrow="Share gallery"
-                  title="Share your photos instantly"
-                  description="Scan the QR code or send the gallery link so anyone can view only your matched photos without creating an account."
-                  linkLabel="Gallery link"
-                  copyLabel="Copy gallery link"
-                  downloadLabel="Download gallery QR"
-                />
-              ) : galleryShareError ? (
-                <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                  {galleryShareError}
-                </div>
-              ) : null
-            ) : null}
-
-            {activeTab === "all" ? (
-              <ShareEventPanel
-                eventName={event.name}
-                joinToken={event.joinToken}
-                eyebrow="Share gallery"
-                title="Share the full event gallery"
-                description="Scan the QR code or send the gallery link so anyone can view all event photos without creating an account."
-                linkLabel="Gallery link"
-                copyLabel="Copy gallery link"
-                downloadLabel="Download gallery QR"
-              />
-            ) : null}
 
             {activeTab === "my" ? (
               !hasFaceProfile ? (
