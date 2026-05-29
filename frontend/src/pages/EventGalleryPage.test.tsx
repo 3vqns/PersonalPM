@@ -250,6 +250,6 @@ describe("EventGalleryPage", () => {
     await user.click(screen.getByRole("button", { name: /all photos/i }));
 
     expect(await screen.findByText("Share the full event gallery")).toBeInTheDocument();
-    expect(screen.getByText("http://localhost/join/join-token")).toBeInTheDocument();
+    expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
   });
 });

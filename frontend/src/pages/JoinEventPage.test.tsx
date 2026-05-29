@@ -1,4 +1,3 @@
-import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { JoinEventPage } from "./JoinEventPage";
@@ -144,32 +143,32 @@ describe("JoinEventPage", () => {
     });
   });
 
-  it("logs in inline and joins the event without leaving the join route first", async () => {
-    const user = userEvent.setup();
-    const refreshSession = vi.fn().mockResolvedValue(undefined);
-
+  it("shows the empty public gallery state to anonymous visitors", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: null,
       user: null,
       isDemo: false,
       signOut: vi.fn(),
-      refreshSession,
+      refreshSession: vi.fn(),
       startDemo: vi.fn(),
     });
 
     mockedApiFetch.mockImplementation(async (path: string) => {
-      if (path === "/api/events/join/demo-token") {
+      if (path === "/api/events/join/demo-token/gallery") {
         return {
-          id: "event-1",
-          name: "Demo Event",
-          date: "2026-06-21",
-          hostName: "Avery",
-          photoCount: 42,
-          memberCount: 9,
-          status: "active",
-          expiresAt: "2026-07-21",
-          joinToken: "demo-token",
+          event: {
+            id: "event-1",
+            name: "Demo Event",
+            date: "2026-06-21",
+            hostName: "Avery",
+            photoCount: 42,
+            memberCount: 9,
+            status: "active",
+            expiresAt: "2026-07-21",
+            joinToken: "demo-token",
+          },
+          photos: [],
         };
       }
 
@@ -180,41 +179,21 @@ describe("JoinEventPage", () => {
       throw new Error(`Unexpected path: ${path}`);
     });
 
-    mockedSignIn.mockResolvedValue({
-      data: { session: null, user: null },
-      error: null,
-    } as never);
-
     render(
       <MemoryRouter initialEntries={["/join/demo-token"]}>
         <Routes>
           <Route path="/join/:token" element={<JoinEventPage />} />
-          <Route path="/event/:id" element={<div>Joined gallery</div>} />
         </Routes>
       </MemoryRouter>,
     );
 
     expect(await screen.findByText("Demo Event")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /log in/i }));
-    await user.type(screen.getByLabelText("Email"), "guest@example.com");
-    await user.type(screen.getByLabelText("Password"), "password123");
-    await user.click(screen.getAllByRole("button", { name: /^log in$/i })[1]);
-
-    await waitFor(() => {
-      expect(screen.getByText("Joined gallery")).toBeInTheDocument();
-    });
-
-    expect(mockedSignIn).toHaveBeenCalledWith({
-      email: "guest@example.com",
-      password: "password123",
-    });
-    expect(refreshSession).toHaveBeenCalled();
+    expect(screen.getByText("No photos uploaded yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /log in/i })).not.toBeInTheDocument();
+    expect(mockedSignIn).not.toHaveBeenCalled();
   });
 
-  it("starts Google auth from the invite route", async () => {
-    const user = userEvent.setup();
-
+  it("does not start Google auth while the public gallery is directly available", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: null,
@@ -226,17 +205,20 @@ describe("JoinEventPage", () => {
     });
     mockedGoogleSignIn.mockResolvedValue(undefined);
     mockedApiFetch.mockImplementation(async (path: string) => {
-      if (path === "/api/events/join/demo-token") {
+      if (path === "/api/events/join/demo-token/gallery") {
         return {
-          id: "event-1",
-          name: "Demo Event",
-          date: "2026-06-21",
-          hostName: "Avery",
-          photoCount: 42,
-          memberCount: 9,
-          status: "active",
-          expiresAt: "2026-07-21",
-          joinToken: "demo-token",
+          event: {
+            id: "event-1",
+            name: "Demo Event",
+            date: "2026-06-21",
+            hostName: "Avery",
+            photoCount: 42,
+            memberCount: 9,
+            status: "active",
+            expiresAt: "2026-07-21",
+            joinToken: "demo-token",
+          },
+          photos: [],
         };
       }
 
@@ -252,8 +234,7 @@ describe("JoinEventPage", () => {
     );
 
     expect(await screen.findByText("Demo Event")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /join with google/i }));
-
-    expect(mockedGoogleSignIn).toHaveBeenCalledWith("/join/demo-token");
+    expect(screen.queryByRole("button", { name: /join with google/i })).not.toBeInTheDocument();
+    expect(mockedGoogleSignIn).not.toHaveBeenCalled();
   });
 });
