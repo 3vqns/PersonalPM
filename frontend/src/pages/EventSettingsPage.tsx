@@ -17,6 +17,7 @@ export function EventSettingsPage() {
     name: "",
     date: "",
     description: "",
+    allowAnyoneUpload: false,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,6 +45,7 @@ export function EventSettingsPage() {
           name: eventResponse.name,
           date: eventResponse.date,
           description: eventResponse.description ?? "",
+          allowAnyoneUpload: eventResponse.allowAnyoneUpload ?? false,
         });
       } catch (requestError) {
         setError(
@@ -72,6 +74,7 @@ export function EventSettingsPage() {
           name: form.name,
           date: form.date,
           description: form.description,
+          allow_anyone_upload: form.allowAnyoneUpload,
         },
       });
       setEvent(response);
@@ -223,6 +226,29 @@ export function EventSettingsPage() {
                   }))
                 }
               />
+            </div>
+          </label>
+
+          {/* Allow anyone to upload toggle */}
+          <label className="flex cursor-pointer items-start gap-4 rounded-[28px] border border-ink/10 p-4 lg:col-span-2 hover:bg-ink/[0.02] transition">
+            <div className="flex h-5 items-center">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded accent-seafoam-500 cursor-pointer"
+                checked={form.allowAnyoneUpload}
+                onChange={(inputEvent) =>
+                  setForm((value) => ({
+                    ...value,
+                    allowAnyoneUpload: inputEvent.target.checked,
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-ink">Allow anyone to upload photos</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate">
+                When enabled, guests who open the event link without signing in can upload photos to this gallery.
+              </p>
             </div>
           </label>
           <div className="lg:col-span-2 flex flex-col gap-3 sm:flex-row">
