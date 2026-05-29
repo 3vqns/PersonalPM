@@ -45,7 +45,7 @@ export function ShareModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="surface-card relative my-auto w-full max-w-md space-y-6 p-6 sm:p-8">
+      <div className="surface-card relative my-auto w-full max-w-md space-y-6 p-6 sm:max-w-lg sm:p-8">
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
