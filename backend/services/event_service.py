@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import BackgroundTasks, UploadFile
 
@@ -39,10 +39,6 @@ from backend.services.cloudinary_service import upload_event_cover
 from backend.services.matching_service import trigger_user_event_match
 
 logger = logging.getLogger("pictureme.events")
-_EVENT_SELECT_COLUMNS = (
-    "id,creator_id,name,description,date,join_token,rekognition_collection_id,"
-    "cover_url,status,created_at,tags,allow_anyone_upload"
-)
 
 
 def get_dashboard(current_user: AuthenticatedUser) -> DashboardResponse:
@@ -71,8 +67,6 @@ async def create_event(
     name: str,
     date_value: date,
     description: str | None,
-    tags: list[str] | None = None,
-    allow_anyone_upload: bool = False,
     cover: UploadFile | None = None,
 ) -> EventCreateResponse:
     """Create an event, its creator membership, and its Rekognition collection."""
@@ -96,6 +90,7 @@ async def create_event(
     except Exception as exc:
         raise AppError("PictureMe could not create the event collection", code="REKOGNITION_CREATE_FAILED", status=502) from exc
 
+    expires_at = _compute_event_expiry(date_value)
     client = get_supabase_admin_client()
     event_id: str | None = None
 
@@ -106,8 +101,7 @@ async def create_event(
                 "name": cleaned_name,
                 "description": description.strip() if description else None,
                 "date": date_value.isoformat(),
-                "tags": _normalize_tags(tags),
-                "allow_anyone_upload": allow_anyone_upload,
+                "expires_at": expires_at.isoformat(),
                 "join_token": join_token,
                 "rekognition_collection_id": collection_id,
                 "status": "active",
@@ -183,10 +177,7 @@ def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: Eve
         update_payload["description"] = payload.description.strip() or None
     if payload.date is not None:
         update_payload["date"] = payload.date.isoformat()
-    if payload.tags is not None:
-        update_payload["tags"] = _normalize_tags(payload.tags)
-    if payload.allow_anyone_upload is not None:
-        update_payload["allow_anyone_upload"] = payload.allow_anyone_upload
+        update_payload["expires_at"] = _compute_event_expiry(payload.date).isoformat()
 
     if update_payload:
         try:
@@ -286,13 +277,12 @@ def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) 
         id=event.id,
         name=event.name,
         date=event.date,
-        tags=event.tags,
-        allowAnyoneUpload=event.allow_anyone_upload,
         hostName=creator.name,
         coverUrl=event.cover_url,
         photoCount=photo_count,
         memberCount=member_count,
         status=event.status,
+        expiresAt=event.expires_at,
         joinToken=event.join_token,
         alreadyJoined=already_joined,
     )
@@ -317,6 +307,9 @@ def join_event(
 ) -> EventJoinResponse:
     """Join an event if needed and enqueue the async match kickoff when eligible."""
     event = _get_event_or_404(event_id)
+    if event.status != "active":
+        raise AppError("This gallery has expired and can no longer accept new members", code="EVENT_EXPIRED", status=409)
+
     public_user = get_public_user_record(current_user)
     if event.creator_id == current_user.user_id:
         return EventJoinResponse(eventId=event.id, alreadyJoined=True, role="creator")
@@ -366,14 +359,13 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
                 id=event.id,
                 name=event.name,
                 date=event.date,
-                tags=event.tags,
-                allowAnyoneUpload=event.allow_anyone_upload,
                 coverUrl=event.cover_url,
                 hostName=creator.name if creator else "PictureMe Host",
                 photoCount=photo_counts.get(event.id, 0),
                 memberCount=member_counts.get(event.id, 0),
                 memberPreviews=member_previews.get(event.id, []),
                 myPhotosCount=match_counts.get(event.id, 0),
+                daysRemaining=_get_days_remaining(event.expires_at),
                 status=event.status,
                 role=role,
             )
@@ -393,8 +385,7 @@ def _build_event_detail(
         name=event.name,
         description=event.description,
         date=event.date,
-        tags=event.tags,
-        allowAnyoneUpload=event.allow_anyone_upload,
+        expiresAt=event.expires_at,
         status=event.status,
         coverUrl=event.cover_url,
         joinToken=event.join_token,
@@ -470,7 +461,9 @@ def _is_missing_original_filename_column(exc: Exception) -> bool:
 
 def _get_event_or_404(event_id: str) -> EventRecord:
     try:
-        response = get_supabase_admin_client().table("events").select(_EVENT_SELECT_COLUMNS).eq("id", event_id).maybe_single().execute()
+        response = get_supabase_admin_client().table("events").select(
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+        ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event", code="EVENT_FETCH_FAILED", status=500) from exc
 
@@ -482,7 +475,9 @@ def _get_event_or_404(event_id: str) -> EventRecord:
 
 def _get_event_by_join_token(token: str) -> EventRecord:
     try:
-        response = get_supabase_admin_client().table("events").select(_EVENT_SELECT_COLUMNS).eq("join_token", token).maybe_single().execute()
+        response = get_supabase_admin_client().table("events").select(
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+        ).eq("join_token", token).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event invite", code="EVENT_FETCH_FAILED", status=500) from exc
 
@@ -494,7 +489,9 @@ def _get_event_by_join_token(token: str) -> EventRecord:
 
 def _list_events_by_creator(user_id: str) -> list[EventRecord]:
     try:
-        response = get_supabase_admin_client().table("events").select(_EVENT_SELECT_COLUMNS).eq("creator_id", user_id).order("date", desc=True).execute()
+        response = get_supabase_admin_client().table("events").select(
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+        ).eq("creator_id", user_id).order("date", desc=True).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your dashboard", code="DASHBOARD_FETCH_FAILED", status=500) from exc
 
@@ -506,7 +503,9 @@ def _list_events_by_ids(event_ids: list[str]) -> list[EventRecord]:
         return []
 
     try:
-        response = get_supabase_admin_client().table("events").select(_EVENT_SELECT_COLUMNS).in_("id", event_ids).order("date", desc=True).execute()
+        response = get_supabase_admin_client().table("events").select(
+            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+        ).in_("id", event_ids).order("date", desc=True).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load your dashboard", code="DASHBOARD_FETCH_FAILED", status=500) from exc
 
@@ -685,17 +684,18 @@ def _get_public_users_by_ids(user_ids: list[str]) -> list[PublicUserRecord]:
     return [PublicUserRecord.model_validate(row) for row in (response.data or [])]
 
 
-def _normalize_tags(tags: list[str] | None) -> list[str]:
-    normalized_tags: list[str] = []
-    for tag in tags or []:
-        cleaned_tag = tag.strip()
-        if cleaned_tag and cleaned_tag not in normalized_tags:
-            normalized_tags.append(cleaned_tag[:30])
-    return normalized_tags
+def _compute_event_expiry(event_date: date) -> datetime:
+    return datetime.combine(event_date, time(23, 59, 59), tzinfo=timezone.utc) + timedelta(days=30)
 
 
 def _generate_join_token() -> str:
     return secrets.token_urlsafe(9).replace("-", "").replace("_", "").lower()[:12]
+
+
+def _get_days_remaining(expires_at: datetime) -> int:
+    current_time = datetime.now(timezone.utc)
+    remaining = expires_at - current_time
+    return max(0, int((remaining.total_seconds() + 86399) // 86400))
 
 
 def _delete_rekognition_collection(collection_id: str, *, suppress_not_found: bool = False) -> None:
