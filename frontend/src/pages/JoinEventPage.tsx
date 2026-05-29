@@ -218,15 +218,63 @@ export function JoinEventPage() {
     );
   }
 
+  // Unauthenticated public gallery view — full-width layout, no cramped hero column
+  if (!session && publicGallery) {
+    return (
+      <div className="page-shell space-y-6">
+        {lightboxIndex !== null ? (
+          <PhotoLightbox
+            photos={publicGallery.photos}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        ) : null}
+
+        <section className="surface-card space-y-5 p-6">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+              Event gallery
+            </p>
+            <h1 className="text-4xl text-ink">{preview.name}</h1>
+            <p className="text-sm text-slate">
+              Hosted by {preview.hostName} on {formatLongDate(preview.date)}
+            </p>
+          </div>
+
+          <div className="grid gap-3 rounded-[28px] bg-ivory/70 p-4 sm:grid-cols-3">
+            <div className="flex items-center gap-2 text-sm text-slate">
+              <CalendarDays className="h-4 w-4 text-seafoam-500" />
+              <span>{formatDate(preview.date)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-slate">
+              <Images className="h-4 w-4 text-seafoam-500" />
+              <span>{preview.photoCount} photos</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-slate">
+              <Users className="h-4 w-4 text-seafoam-500" />
+              <span>{preview.memberCount} joined</span>
+            </div>
+          </div>
+
+          {publicGallery.photos.length ? (
+            <PhotoGrid
+              photos={publicGallery.photos}
+              onSelect={(index) => setLightboxIndex(index)}
+            />
+          ) : (
+            <EmptyState
+              icon={<Images className="h-7 w-7" />}
+              title="No photos uploaded yet"
+              description="This public gallery is live, but there are no event photos available right now."
+            />
+          )}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="page-shell space-y-6">
-      {!session && publicGallery && lightboxIndex !== null ? (
-        <PhotoLightbox
-          photos={publicGallery.photos}
-          initialIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-        />
-      ) : null}
 
       <section className="surface-card overflow-hidden p-0">
         <div className="grid gap-0 lg:grid-cols-[1.1fr,0.9fr]">
@@ -270,19 +318,6 @@ export function JoinEventPage() {
               <div className="rounded-3xl bg-amber-50 px-4 py-3 text-sm text-amber-600">
                 This gallery has expired and can no longer accept new members.
               </div>
-            ) : !session && publicGallery ? (
-              publicGallery.photos.length ? (
-                <PhotoGrid
-                  photos={publicGallery.photos}
-                  onSelect={(index) => setLightboxIndex(index)}
-                />
-              ) : (
-                <EmptyState
-                  icon={<Images className="h-7 w-7" />}
-                  title="No photos uploaded yet"
-                  description="This public gallery is live, but there are no event photos available right now."
-                />
-              )
             ) : phase === "face" ? (
               <FaceScanCapture
                 onCapture={handleFaceCapture}
