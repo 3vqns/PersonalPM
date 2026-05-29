@@ -8,6 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   disableDemoMode,
   enableDemoMode,
@@ -66,6 +67,7 @@ async function loadAuthUser(user: User | null) {
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,23 +111,28 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void refreshSession();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, activeSession) => {
-      void (async () => {
-        if (isDemoMode()) {
-          setDemo(true);
-          setSession(getDemoSession());
-          setUser(getDemoUser());
-          setLoading(false);
-          return;
-        }
-
-        setSession(activeSession);
-        setUser(await loadAuthUser(activeSession?.user ?? null));
-        setDemo(false);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, activeSession) => {
+      if (isDemoMode()) {
+        setDemo(true);
+        setSession(getDemoSession());
+        setUser(getDemoUser());
         setLoading(false);
-      })();
+        return;
+      }
+
+      setSession(activeSession);
+      setUser(await loadAuthUser(activeSession?.user ?? null));
+      setDemo(false);
+      setLoading(false);
+
+      if (event === 'SIGNED_IN') {
+        const returnTo = localStorage.getItem('returnTo');
+        if (returnTo) {
+          localStorage.removeItem('returnTo');
+          // Use navigate to redirect
+          navigate(returnTo);
+        }
+      }
     });
 
     return () => {

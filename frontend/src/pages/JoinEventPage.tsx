@@ -328,6 +328,10 @@ export function JoinEventPage() {
           <Link
             to="/login"
             className="secondary-button shrink-0 !text-seafoam-700 border-seafoam-200"
+            onClick={() => {
+              const returnPath = window.location.pathname + window.location.search;
+              localStorage.setItem('returnTo', returnPath);
+            }}
           >
             Sign in
             <ArrowRight className="ml-2 h-4 w-4" />
