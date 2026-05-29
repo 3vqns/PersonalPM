@@ -99,7 +99,7 @@ export function EventCard({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
           <div className="flex items-center">
             <div className="flex items-center">
               {attendeePreviews.map((member, index) => (
@@ -129,13 +129,6 @@ export function EventCard({
               <span>{event.photoCount} photos</span>
             </div>
           </div>
-          {typeof event.daysRemaining === "number" &&
-          event.daysRemaining > 0 &&
-          event.daysRemaining < 14 ? (
-            <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-500">
-              {event.daysRemaining}d left
-            </span>
-          ) : null}
         </div>
 
         <div className="mt-auto flex items-center justify-between gap-4 border-t border-[#f0e3d6] pt-4">
@@ -183,15 +176,15 @@ function getAttendeePreviews(event: EventSummary) {
 }
 
 function getVenueLabel(category: string) {
-  if (category === "Weddings") {
+  if (category === "Wedding") {
     return "Private venue details";
   }
 
-  if (category === "Conferences") {
+  if (category === "Conference") {
     return "Convention venue";
   }
 
-  if (category === "Parties") {
+  if (category === "Party") {
     return "Private celebration venue";
   }
 
