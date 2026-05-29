@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import { ShareEventPanel } from "./ShareEventPanel";
+import { ShareEventPanelVertical } from "./ShareEventPanelVertical";
 
 interface ShareModalProps {
   eventName: string;
@@ -17,19 +17,15 @@ export function ShareModal({
   galleryShareError,
   onClose,
 }: ShareModalProps) {
-  // Close on Escape key
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-      }
+      if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
   return (
-    /* Backdrop */
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
@@ -37,10 +33,9 @@ export function ShareModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Modal panel */}
-      <div className="surface-card relative w-full max-w-4xl space-y-6 p-6">
+      <div className="surface-card relative w-full max-w-3xl space-y-6 p-6 sm:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
               Share
@@ -57,18 +52,27 @@ export function ShareModal({
           </button>
         </div>
 
+        {/* Divider */}
+        <div className="h-px w-full bg-ink/8" />
+
         {/* Two columns */}
-        <div className="grid gap-5 lg:grid-cols-2">
-          {/* Share My Photos */}
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-ink">Share My Photos</p>
+        <div className="grid gap-6 sm:grid-cols-2">
+          {/* ── Share My Photos ── */}
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+                My photos
+              </p>
+              <h3 className="text-lg text-ink">Share your matched photos</h3>
+              <p className="mt-1 text-sm leading-5 text-slate">
+                Anyone with this link can view only your matched photos — no account needed.
+              </p>
+            </div>
+
             {galleryShareUrl ? (
-              <ShareEventPanel
+              <ShareEventPanelVertical
                 eventName={eventName}
                 shareUrl={galleryShareUrl}
-                eyebrow="My photos"
-                title="Share your matched photos"
-                description="Anyone with this link can view only your matched photos — no account needed."
                 linkLabel="Gallery link"
                 copyLabel="Copy gallery link"
                 downloadLabel="Download QR"
@@ -78,28 +82,35 @@ export function ShareModal({
                 {galleryShareError}
               </div>
             ) : (
-              <div className="surface-card flex items-center gap-3 p-5 opacity-60">
-                <div className="h-[180px] w-[180px] animate-pulse rounded-[28px] bg-ink/10" />
-                <div className="flex-1 space-y-3">
-                  <div className="h-3 w-2/3 rounded-full bg-ink/10" />
-                  <div className="h-3 w-1/2 rounded-full bg-ink/10" />
-                  <p className="text-xs text-slate">
-                    Generating your personal link…
-                  </p>
+              <div className="flex flex-col items-center gap-4 rounded-[28px] bg-ivory/70 p-5">
+                <div className="h-[140px] w-[140px] animate-pulse rounded-2xl bg-ink/10" />
+                <div className="w-full space-y-2">
+                  <div className="h-2.5 w-3/4 rounded-full bg-ink/10" />
+                  <div className="h-2.5 w-1/2 rounded-full bg-ink/10" />
                 </div>
+                <p className="text-xs text-slate">Generating your personal link…</p>
               </div>
             )}
           </div>
 
-          {/* Share Full Gallery */}
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-ink">Share Full Gallery</p>
-            <ShareEventPanel
+          {/* ── Vertical divider (desktop) / horizontal divider (mobile) ── */}
+          <div className="hidden sm:block absolute left-1/2 top-[7rem] bottom-8 w-px bg-ink/8 -translate-x-1/2" />
+          <div className="block sm:hidden h-px w-full bg-ink/8" />
+
+          {/* ── Share Full Gallery ── */}
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
+                Full gallery
+              </p>
+              <h3 className="text-lg text-ink">Share the full event gallery</h3>
+              <p className="mt-1 text-sm leading-5 text-slate">
+                Anyone with this link can view all event photos — no account needed.
+              </p>
+            </div>
+            <ShareEventPanelVertical
               eventName={eventName}
               joinToken={joinToken}
-              eyebrow="Full gallery"
-              title="Share the full event gallery"
-              description="Anyone with this link can view all event photos — no account needed."
               linkLabel="Gallery link"
               copyLabel="Copy gallery link"
               downloadLabel="Download QR"
