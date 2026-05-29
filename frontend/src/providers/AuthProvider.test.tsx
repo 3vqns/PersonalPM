@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuthContext } from "./AuthProvider";
 import { apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
@@ -44,6 +45,16 @@ function AuthStateProbe() {
   );
 }
 
+function renderAuthProvider() {
+  return render(
+    <MemoryRouter>
+      <AuthProvider>
+        <AuthStateProbe />
+      </AuthProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe("AuthProvider", () => {
   beforeEach(() => {
     mockedOnAuthStateChange.mockReturnValue({
@@ -83,11 +94,7 @@ describe("AuthProvider", () => {
       },
     });
 
-    render(
-      <AuthProvider>
-        <AuthStateProbe />
-      </AuthProvider>,
-    );
+    renderAuthProvider();
 
     await waitFor(() => {
       expect(screen.getByText("Backend Name")).toBeInTheDocument();
@@ -114,14 +121,21 @@ describe("AuthProvider", () => {
     } as never);
     mockedApiFetch.mockRejectedValue(new Error("backend unavailable"));
 
-    render(
-      <AuthProvider>
-        <AuthStateProbe />
-      </AuthProvider>,
-    );
+    renderAuthProvider();
 
     await waitFor(() => {
       expect(screen.getByText("Fallback Name")).toBeInTheDocument();
+      expect(screen.getByText("No face profile")).toBeInTheDocument();
+    });
+  });
+
+  it("clears loading when the Supabase session check fails", async () => {
+    mockedGetSession.mockRejectedValue(new Error("auth unavailable"));
+
+    renderAuthProvider();
+
+    await waitFor(() => {
+      expect(screen.getByText("No user")).toBeInTheDocument();
       expect(screen.getByText("No face profile")).toBeInTheDocument();
     });
   });

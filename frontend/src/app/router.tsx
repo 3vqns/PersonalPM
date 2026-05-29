@@ -3,7 +3,6 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { Navbar } from "../components/Navbar";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { PublicOnlyRoute } from "../components/PublicOnlyRoute";
-import { Spinner } from "../components/Spinner";
 import { useAuth } from "../hooks/useAuth";
 import { AccountSettingsPage } from "../pages/AccountSettingsPage";
 import { DashboardPage } from "../pages/DashboardPage";
@@ -31,15 +30,7 @@ function AppLayout() {
 }
 
 function HomeRoute() {
-  const { loading, session } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="page-shell flex min-h-[60vh] items-center justify-center">
-        <Spinner label="Loading PictureMe..." />
-      </div>
-    );
-  }
+  const { session } = useAuth();
 
   if (session) {
     return <Navigate replace to="/dashboard" />;
