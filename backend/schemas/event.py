@@ -35,13 +35,14 @@ class EventSummaryResponse(BaseModel):
     id: str
     name: str
     date: calendar_date
+    tags: list[str] = Field(default_factory=list)
+    allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
     cover_url: str | None = Field(default=None, alias="coverUrl")
     host_name: str | None = Field(default=None, alias="hostName")
     photo_count: int = Field(alias="photoCount")
     member_count: int = Field(alias="memberCount")
     member_previews: list[EventMemberPreviewResponse] = Field(default_factory=list, alias="memberPreviews")
     my_photos_count: int | None = Field(default=None, alias="myPhotosCount")
-    days_remaining: int = Field(alias="daysRemaining")
     status: EventStatus
     role: EventRole
 
@@ -75,7 +76,8 @@ class EventDetailResponse(BaseModel):
     name: str
     description: str | None = None
     date: calendar_date
-    expires_at: datetime = Field(alias="expiresAt")
+    tags: list[str] = Field(default_factory=list)
+    allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
     status: EventStatus
     cover_url: str | None = Field(default=None, alias="coverUrl")
     join_token: str = Field(alias="joinToken")
@@ -92,18 +94,31 @@ class EventCreateResponse(BaseModel):
     id: str
 
 
+class EventCreateRequest(BaseModel):
+    """Event creation fields before cover upload handling."""
+
+    name: str = Field(max_length=120)
+    date: calendar_date
+    description: str | None = Field(default=None, max_length=2000)
+    tags: list[str] = Field(default_factory=list)
+    allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class JoinPreviewResponse(BaseModel):
     """Public-safe event invite preview."""
 
     id: str
     name: str
     date: calendar_date
+    tags: list[str] = Field(default_factory=list)
+    allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
     host_name: str = Field(alias="hostName")
     cover_url: str | None = Field(default=None, alias="coverUrl")
     photo_count: int = Field(alias="photoCount")
     member_count: int = Field(alias="memberCount")
     status: EventStatus
-    expires_at: datetime = Field(alias="expiresAt")
     join_token: str = Field(alias="joinToken")
     already_joined: bool | None = Field(default=None, alias="alreadyJoined")
 
@@ -132,6 +147,10 @@ class EventUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     date: calendar_date | None = None
     description: str | None = Field(default=None, max_length=2000)
+    tags: list[str] | None = None
+    allow_anyone_upload: bool | None = Field(default=None, alias="allowAnyoneUpload")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class EventMemberRoleUpdateRequest(BaseModel):
@@ -158,7 +177,9 @@ class EventRecord(BaseModel):
     name: str
     description: str | None = None
     date: calendar_date
-    expires_at: datetime
+    expires_at: datetime | None = None
+    tags: list[str] = Field(default_factory=list)
+    allow_anyone_upload: bool = False
     join_token: str
     rekognition_collection_id: str
     cover_url: str | None = None

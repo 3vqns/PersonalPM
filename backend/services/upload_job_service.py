@@ -17,7 +17,13 @@ from backend.schemas.upload import (
 )
 
 
-def create_upload_job(*, event_id: str, created_by: str, files: list[StagedUploadFile]) -> UploadJobRecord:
+def create_upload_job(
+    *,
+    event_id: str,
+    created_by: str | None,
+    files: list[StagedUploadFile],
+    uploader_name: str | None = None,
+) -> UploadJobRecord:
     """Create one upload batch plus queued file rows."""
     client = get_supabase_admin_client()
     now = _utc_now_iso()
@@ -27,6 +33,7 @@ def create_upload_job(*, event_id: str, created_by: str, files: list[StagedUploa
             {
                 "event_id": event_id,
                 "created_by": created_by,
+                "uploader_name": uploader_name,
                 "total_files": len(files),
                 "uploaded_files": 0,
                 "indexed_files": 0,
@@ -60,6 +67,40 @@ def create_upload_job(*, event_id: str, created_by: str, files: list[StagedUploa
         raise AppError("PictureMe could not create upload file rows", code="UPLOAD_JOB_CREATE_FAILED", status=500) from exc
 
     return job
+
+
+def create_direct_upload_job(
+    *,
+    event_id: str,
+    created_by: str | None,
+    total_files: int,
+    uploader_name: str | None = None,
+) -> UploadJobRecord:
+    """Create one direct-upload batch row for browser-uploaded files."""
+    client = get_supabase_admin_client()
+    now = _utc_now_iso()
+
+    try:
+        job_response = client.table("upload_jobs").insert(
+            {
+                "event_id": event_id,
+                "created_by": created_by,
+                "uploader_name": uploader_name,
+                "total_files": total_files,
+                "uploaded_files": total_files,
+                "indexed_files": 0,
+                "failed_files": 0,
+                "status": "queued",
+                "started_at": now,
+            }
+        ).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not create the upload job", code="UPLOAD_JOB_CREATE_FAILED", status=500) from exc
+
+    created_job = get_first_row(job_response.data)
+    if not created_job:
+        raise AppError("PictureMe could not create the upload job", code="UPLOAD_JOB_CREATE_FAILED", status=500)
+    return UploadJobRecord.model_validate(created_job)
 
 
 def list_upload_job_files(job_id: str) -> list[UploadJobFileRecord]:
