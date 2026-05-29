@@ -26,11 +26,10 @@ def test_validation_errors_keep_stable_json_shape(client, app) -> None:
     assert isinstance(response.json()["details"]["errors"], list)
 
 
-def test_internal_cleanup_route_requires_secret(client) -> None:
+def test_internal_cleanup_route_is_disabled(client) -> None:
     response = client.post("/api/cleanup")
 
-    assert response.status_code == 403
-    assert response.json() == {"message": "Missing authorization header", "code": "FORBIDDEN"}
+    assert response.status_code == 404
 
 
 def test_event_gallery_requires_authentication(client) -> None:

@@ -51,3 +51,5 @@ Current files:
 - `project-structure.md`: Describes the main folders and their responsibilities.
 - `backendPlan.md`: Breaks backend implementation into staged delivery milestones tied to the documented product flow.
 - `frontend.md`: Documents the current frontend structure and Supabase integration boundary.
+- `Tasks.md`: Stores the original dad-feedback backlog with detailed implementation notes.
+- `tasks-implementation-plan.md`: Reorganizes the dad-feedback backlog into four work groups, dependency order, and verification checkpoints.

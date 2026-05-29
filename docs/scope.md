@@ -10,6 +10,8 @@ Build a product that allows users to register their face to their account once, 
 
 - Event Organizers can upload event photo sets to a specific event.
 - Event Organizers can invite contributors who are also allowed to upload photos to that event.
+- Event Organizers can optionally allow anyone with the event link to upload photos without creating an account.
+- Anonymous uploaders must provide a display name before uploading so the upload job can still identify who submitted the batch.
 - Contributors can manage the photos they personally uploaded.
 - The system stores and organizes event images for later processing and delivery.
 
@@ -17,6 +19,7 @@ Build a product that allows users to register their face to their account once, 
 
 - Any user can create an event and become that event's Event Organizer.
 - The Event Organizer can manage the event, manage the gallery, and control contributor permissions for that event.
+- The Event Organizer controls whether anonymous users can upload photos for that event.
 - The Event Organizer can invite other users as contributors and remove that privilege later.
 - Contributors can upload photos and manage only the photos they uploaded.
 - Non-privileged users can view allowed gallery photos but do not have organizer or contributor permissions.
@@ -62,6 +65,7 @@ Build a product that allows users to register their face to their account once, 
 - Prioritize a working end-to-end account registration, event creation, permissions, enrollment, matching, and gallery flow over advanced admin features.
 - Prioritize reliable matching and delivery over social or editing features.
 - Keep organizer and contributor tools focused on event-specific upload and gallery workflows, not full studio management.
+- Keep event expiry disabled for the current product pass; the database can retain nullable expiry fields for a future paid feature.
 
 ## Success Criteria
 
@@ -71,6 +75,7 @@ Build a product that allows users to register their face to their account once, 
 - A user can be attached to an event by QR scan or organizer assignment.
 - An Event Organizer can upload event photos.
 - A contributor can upload photos to an event and manage their own uploads.
+- An Event Organizer can opt into anonymous uploads for an event.
 - The system can identify likely matching photos for each registered user.
 - A user can view their personal event photos and the full event gallery.
 - A user receives text notifications when new event photos are uploaded.
