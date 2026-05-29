@@ -7,10 +7,9 @@ import {
   Upload,
   UserRoundSearch,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
-import { ExpiryBanner } from "../components/ExpiryBanner";
 import { PhotoGrid } from "../components/PhotoGrid";
 import { PhotoLightbox } from "../components/PhotoLightbox";
 import { ShareModal } from "../components/ShareModal";
@@ -19,7 +18,7 @@ import { UploadModal } from "../components/UploadModal";
 import { useAuth } from "../hooks/useAuth";
 import { apiFetch } from "../lib/api";
 import { cn } from "../lib/cn";
-import { formatDate, getDaysRemaining } from "../lib/date";
+import { formatDate } from "../lib/date";
 import { normalizePhoto } from "../lib/normalizers";
 import { supabase } from "../lib/supabase";
 import type {
@@ -168,11 +167,6 @@ export function EventGalleryPage() {
       }
     };
   }, [id, isDemo, loadEvent, loadMyPhotos, user]);
-
-  const daysRemaining = useMemo(
-    () => (event ? getDaysRemaining(event.expiresAt) : 0),
-    [event],
-  );
 
   const galleryPhotos = lightboxSource === "my" ? myPhotos : allPhotos;
   const showCreatedPanel =
@@ -337,7 +331,9 @@ export function EventGalleryPage() {
           </div>
         </div>
 
-        <ExpiryBanner expiresAt={event.expiresAt} daysRemaining={daysRemaining} />
+        {showCreatedPanel ? (
+          <ShareEventPanel eventName={event.name} joinToken={event.joinToken} />
+        ) : null}
 
         {event.status === "expired" ? (
           <div className="rounded-[28px] bg-amber-50 px-5 py-6 text-sm leading-6 text-amber-600">
