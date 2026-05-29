@@ -276,6 +276,7 @@ export function EventGalleryPage() {
           joinToken={event.joinToken}
           galleryShareUrl={galleryShareUrl}
           galleryShareError={galleryShareError}
+          hasMyPhotos={myPhotos.length > 0}
           onClose={() => setShareOpen(false)}
         />
       ) : null}

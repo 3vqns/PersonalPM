@@ -7,6 +7,7 @@ interface ShareModalProps {
   joinToken: string;
   galleryShareUrl: string | null;
   galleryShareError: string | null;
+  hasMyPhotos: boolean;
   onClose: () => void;
 }
 
@@ -15,6 +16,7 @@ export function ShareModal({
   joinToken,
   galleryShareUrl,
   galleryShareError,
+  hasMyPhotos,
   onClose,
 }: ShareModalProps) {
   useEffect(() => {
@@ -81,7 +83,8 @@ export function ShareModal({
               <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 {galleryShareError}
               </div>
-            ) : (
+            ) : hasMyPhotos ? (
+              // URL is actively being generated
               <div className="flex flex-col items-center gap-4 rounded-[28px] bg-ivory/70 p-5">
                 <div className="h-[140px] w-[140px] animate-pulse rounded-2xl bg-ink/10" />
                 <div className="w-full space-y-2">
@@ -89,6 +92,14 @@ export function ShareModal({
                   <div className="h-2.5 w-1/2 rounded-full bg-ink/10" />
                 </div>
                 <p className="text-xs text-slate">Generating your personal link…</p>
+              </div>
+            ) : (
+              // User has no matched photos — nothing to share yet
+              <div className="rounded-3xl border border-ink/10 bg-ivory/70 px-4 py-5 text-center">
+                <p className="text-sm font-medium text-ink">No matched photos yet</p>
+                <p className="mt-1 text-xs leading-5 text-slate">
+                  Your personal gallery link will appear here once PictureMe finds photos of you in this event.
+                </p>
               </div>
             )}
           </div>
