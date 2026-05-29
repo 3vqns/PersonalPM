@@ -15,7 +15,7 @@ from starlette.datastructures import Headers
 from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord
-from backend.schemas.upload import StagedUploadFile
+from backend.schemas.upload import DirectUploadPhoto, StagedUploadFile
 from backend.services import photo_upload_service
 
 
@@ -106,7 +106,11 @@ def test_upload_batch_schedules_background_processing(monkeypatch) -> None:
         return [staged_file]
 
     monkeypatch.setattr(photo_upload_service, "_stage_upload_files", _fake_stage_upload_files)
-    monkeypatch.setattr(photo_upload_service, "uuid4", lambda: SimpleNamespace(hex="job1"))
+    monkeypatch.setattr(
+        photo_upload_service,
+        "create_upload_job",
+        lambda **kwargs: SimpleNamespace(id="job-1", **kwargs),
+    )
 
     response = asyncio.run(
         photo_upload_service.start_event_upload_batch(
@@ -117,11 +121,72 @@ def test_upload_batch_schedules_background_processing(monkeypatch) -> None:
         )
     )
 
-    assert response.job_id == "upload-job1"
+    assert response.job_id == "job-1"
     assert len(background_tasks.tasks) == 1
     queued_func, args, _kwargs = background_tasks.tasks[0]
     assert queued_func is photo_upload_service._process_upload_job
-    assert args[0] == "upload-job1"
+    assert args[0] == "job-1"
+
+
+def test_anonymous_direct_upload_requires_uploader_name(monkeypatch) -> None:
+    event = _build_event()
+    event.allow_anyone_upload = True
+
+    monkeypatch.setattr(photo_upload_service, "_require_upload_access", lambda _user_id, _event_id: (event, "anonymous"))
+
+    with pytest.raises(AppError) as exc_info:
+        photo_upload_service.index_direct_uploads(
+            None,
+            event_id=event.id,
+            photos=[],
+            background_tasks=FakeBackgroundTasks(),
+            uploader_name=None,
+        )
+
+    assert exc_info.value.code == "VALIDATION_ERROR"
+
+
+def test_anonymous_direct_upload_creates_job_with_uploader_name(monkeypatch) -> None:
+    event = _build_event()
+    event.allow_anyone_upload = True
+    background_tasks = FakeBackgroundTasks()
+    created_jobs: list[dict] = []
+
+    monkeypatch.setattr(photo_upload_service, "_require_upload_access", lambda _user_id, _event_id: (event, "anonymous"))
+    monkeypatch.setattr(
+        photo_upload_service,
+        "getSettings",
+        lambda: SimpleNamespace(max_event_upload_batch_files=100, event_photo_folder="pictureme/events"),
+    )
+    monkeypatch.setattr(
+        photo_upload_service,
+        "create_direct_upload_job",
+        lambda **kwargs: created_jobs.append(kwargs) or SimpleNamespace(id="job-1"),
+    )
+
+    response = photo_upload_service.index_direct_uploads(
+        None,
+        event_id=event.id,
+        photos=[
+            DirectUploadPhoto(
+                publicId="pictureme/events/event-1/photo-1",
+                originalFilename="photo-1.jpg",
+                cloudinaryUrl="https://example.com/photo-1.jpg",
+            )
+        ],
+        background_tasks=background_tasks,
+        uploader_name=" Test Name ",
+    )
+
+    assert response.job_id == "job-1"
+    assert created_jobs == [
+        {
+            "event_id": event.id,
+            "created_by": None,
+            "total_files": 1,
+            "uploader_name": "Test Name",
+        }
+    ]
 
 
 def test_stage_upload_files_expands_zip_images(monkeypatch) -> None:

@@ -1,11 +1,15 @@
 """Dashboard, event lifecycle, membership, and join-flow routes."""
 
+import json
+
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from pydantic import ValidationError
 
 from backend.dependencies.auth import AuthenticatedUser, get_optional_authenticated_user, require_authenticated_user
 from backend.errors import AppError
 from backend.schemas.event import (
     DashboardResponse,
+    EventCreateRequest,
     EventCreateResponse,
     EventDetailResponse,
     EventJoinResponse,
@@ -16,7 +20,6 @@ from backend.schemas.event import (
     PublicEventGalleryResponse,
 )
 from backend.schemas.upload import CloudinaryUploadToken, IndexPhotosRequest, UploadJobStartResponse
-from backend.services.cloudinary_service import generate_event_photo_upload_params
 from backend.services.event_service import (
     create_event,
     delete_event,
@@ -47,11 +50,19 @@ async def post_event(
     name: str = Form(...),
     date: str = Form(...),
     description: str | None = Form(default=None),
+    tags: str = Form(default="[]"),
+    allow_anyone_upload: bool = Form(default=False),
     cover: UploadFile | None = File(default=None),
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> EventCreateResponse:
     """Create an event and its Rekognition collection."""
-    payload = EventUpdateRequest(name=name, date=date, description=description)
+    payload = _parse_event_create_payload(
+        name=name,
+        date=date,
+        description=description,
+        tags=tags,
+        allow_anyone_upload=allow_anyone_upload,
+    )
     if payload.date is None or payload.name is None:
         raise AppError("Missing required event fields", code="VALIDATION_ERROR", status=422)
     return await create_event(
@@ -59,6 +70,8 @@ async def post_event(
         name=payload.name,
         date_value=payload.date,
         description=payload.description,
+        tags=payload.tags,
+        allow_anyone_upload=payload.allow_anyone_upload,
         cover=cover,
     )
 
@@ -144,7 +157,8 @@ async def post_event_photos(
     event_id: str,
     background_tasks: BackgroundTasks,
     photos: list[UploadFile] = File(...),
-    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+    uploader_name: str | None = Form(default=None),
+    current_user: AuthenticatedUser | None = Depends(get_optional_authenticated_user),
 ) -> UploadJobStartResponse:
     """Accept an admin upload batch and process it asynchronously."""
     return await start_event_upload_batch(
@@ -152,13 +166,14 @@ async def post_event_photos(
         event_id=event_id,
         files=photos,
         background_tasks=background_tasks,
+        uploader_name=uploader_name,
     )
 
 
 @router.post("/api/events/{event_id}/upload-token", response_model=CloudinaryUploadToken)
 async def post_upload_token(
     event_id: str,
-    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+    current_user: AuthenticatedUser | None = Depends(get_optional_authenticated_user),
 ) -> CloudinaryUploadToken:
     """Return signed Cloudinary upload params so the browser can upload photos directly."""
     return get_event_upload_token(current_user, event_id=event_id)
@@ -169,7 +184,7 @@ async def post_index_photos(
     event_id: str,
     payload: IndexPhotosRequest,
     background_tasks: BackgroundTasks,
-    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+    current_user: AuthenticatedUser | None = Depends(get_optional_authenticated_user),
 ) -> UploadJobStartResponse:
     """Accept references to photos already uploaded to Cloudinary and index them asynchronously."""
     return index_direct_uploads(
@@ -177,6 +192,7 @@ async def post_index_photos(
         event_id=event_id,
         photos=payload.photos,
         background_tasks=background_tasks,
+        uploader_name=payload.uploader_name,
     )
 
 
@@ -188,3 +204,28 @@ async def remove_event_photo(
 ) -> dict[str, bool]:
     """Delete one event photo. Admins and creators may do this."""
     return delete_event_photo(current_user, event_id=event_id, photo_id=photo_id)
+
+
+def _parse_event_create_payload(
+    *,
+    name: str,
+    date: str,
+    description: str | None,
+    tags: str,
+    allow_anyone_upload: bool,
+) -> EventCreateRequest:
+    try:
+        parsed_tags = json.loads(tags or "[]")
+    except json.JSONDecodeError as exc:
+        raise AppError("Event tags must be a JSON array", code="VALIDATION_ERROR", status=422) from exc
+
+    try:
+        return EventCreateRequest(
+            name=name,
+            date=date,
+            description=description,
+            tags=parsed_tags,
+            allow_anyone_upload=allow_anyone_upload,
+        )
+    except ValidationError as exc:
+        raise AppError("Invalid event fields", code="VALIDATION_ERROR", status=422, details={"errors": exc.errors()}) from exc

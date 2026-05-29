@@ -55,8 +55,6 @@ def create_or_reuse_gallery_token(current_user: AuthenticatedUser, *, event_id: 
     """Create a deterministic share token scoped to one user/event pair."""
     event = _get_event_or_404(event_id)
     _require_event_membership(current_user.user_id, event)
-    if event.status != "active":
-        raise AppError("Expired events cannot create new shared galleries", code="EVENT_EXPIRED", status=409)
 
     token = _create_gallery_token(event_id=event_id, user_id=current_user.user_id)
     settings = getSettings()
@@ -68,7 +66,7 @@ def get_shared_gallery(token: str) -> GalleryResponse:
     token_record = _get_gallery_token_or_404(token)
     event = _get_event_or_404(token_record.event_id)
     owner = _get_public_user_by_id(token_record.user_id)
-    matched_photos = [] if event.status != "active" else _list_user_matched_photos(user_id=token_record.user_id, event_id=event.id)
+    matched_photos = _list_user_matched_photos(user_id=token_record.user_id, event_id=event.id)
     download_url = matched_photos[0][1].cloudinary_url if matched_photos else None
 
     return GalleryResponse(
@@ -122,7 +120,7 @@ def _urlsafe_b64decode(value: str) -> bytes:
 def _get_event_or_404(event_id: str) -> EventRecord:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event", code="EVENT_FETCH_FAILED", status=500) from exc

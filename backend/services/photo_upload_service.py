@@ -7,7 +7,6 @@ import urllib.request
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
-from uuid import uuid4
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import BackgroundTasks, UploadFile
@@ -22,6 +21,7 @@ from backend.schemas.upload import CloudinaryUploadToken, DirectUploadPhoto, Sta
 from backend.services.cloudinary_service import delete_event_photo_assets, generate_event_photo_upload_params, upload_event_photo
 from backend.services.matching_service import trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
+from backend.services.upload_job_service import create_direct_upload_job, create_upload_job
 
 logger = logging.getLogger("pictureme.uploads")
 _ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -35,16 +35,17 @@ _ZIP_UPLOAD_TYPES = {"application/zip", "application/x-zip-compressed", "multipa
 
 
 async def start_event_upload_batch(
-    current_user: AuthenticatedUser,
+    current_user: AuthenticatedUser | None,
     *,
     event_id: str,
     files: list[UploadFile],
     background_tasks: BackgroundTasks,
+    uploader_name: str | None = None,
 ) -> UploadJobStartResponse:
     """Validate an upload request, generate a batch id, and schedule async processing."""
-    event, role = _require_upload_access(current_user.user_id, event_id)
-    if event.status != "active":
-        raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
+    event, role = _require_upload_access(current_user.user_id if current_user else None, event_id)
+    created_by = current_user.user_id if current_user else None
+    cleaned_uploader_name = _clean_uploader_name(uploader_name, require_name=current_user is None)
     if len(files) > getSettings().max_event_upload_batch_files:
         raise AppError(
             "Too many photos were submitted in one batch",
@@ -57,38 +58,42 @@ async def start_event_upload_batch(
     if not staged_files:
         raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
 
-    job_id = f"upload-{uuid4().hex}"
-    background_tasks.add_task(_process_upload_job, job_id, current_user.user_id, event, staged_files)
+    job = create_upload_job(
+        event_id=event.id,
+        created_by=created_by,
+        files=staged_files,
+        uploader_name=cleaned_uploader_name,
+    )
+    background_tasks.add_task(_process_upload_job, job.id, created_by, event, staged_files)
     logger.info(
         "Accepted upload batch",
-        extra={"job_id": job_id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
+        extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
     )
-    return UploadJobStartResponse(jobId=job_id)
+    return UploadJobStartResponse(jobId=job.id)
 
 
 def get_event_upload_token(
-    current_user: AuthenticatedUser,
+    current_user: AuthenticatedUser | None,
     *,
     event_id: str,
 ) -> CloudinaryUploadToken:
     """Verify upload access and return signed Cloudinary params for direct browser upload."""
-    event, _ = _require_upload_access(current_user.user_id, event_id)
-    if event.status != "active":
-        raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
+    event, _ = _require_upload_access(current_user.user_id if current_user else None, event_id)
     return generate_event_photo_upload_params(event_id=event.id)
 
 
 def index_direct_uploads(
-    current_user: AuthenticatedUser,
+    current_user: AuthenticatedUser | None,
     *,
     event_id: str,
     photos: list[DirectUploadPhoto],
     background_tasks: BackgroundTasks,
+    uploader_name: str | None = None,
 ) -> UploadJobStartResponse:
     """Validate and schedule background indexing for photos uploaded directly to Cloudinary."""
-    event, role = _require_upload_access(current_user.user_id, event_id)
-    if event.status != "active":
-        raise AppError("Expired events cannot accept new photo uploads", code="EVENT_EXPIRED", status=409)
+    event, role = _require_upload_access(current_user.user_id if current_user else None, event_id)
+    created_by = current_user.user_id if current_user else None
+    cleaned_uploader_name = _clean_uploader_name(uploader_name, require_name=current_user is None)
     if not photos:
         raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
     if len(photos) > getSettings().max_event_upload_batch_files:
@@ -104,18 +109,23 @@ def index_direct_uploads(
         if not photo.public_id.startswith(expected_prefix):
             raise AppError("One or more photo references are invalid", code="FORBIDDEN", status=403)
 
-    job_id = f"upload-{uuid4().hex}"
-    background_tasks.add_task(_process_direct_upload_job, job_id, current_user.user_id, event, photos)
+    job = create_direct_upload_job(
+        event_id=event.id,
+        created_by=created_by,
+        total_files=len(photos),
+        uploader_name=cleaned_uploader_name,
+    )
+    background_tasks.add_task(_process_direct_upload_job, job.id, created_by, event, photos)
     logger.info(
         "Accepted direct upload batch",
-        extra={"job_id": job_id, "event_id": event.id, "role": role, "file_count": len(photos)},
+        extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(photos)},
     )
-    return UploadJobStartResponse(jobId=job_id)
+    return UploadJobStartResponse(jobId=job.id)
 
 
 def _process_direct_upload_job(
     job_id: str,
-    uploader_user_id: str,
+    uploader_user_id: str | None,
     event: EventRecord,
     photos: list[DirectUploadPhoto],
 ) -> None:
@@ -216,7 +226,7 @@ async def _stage_upload_files(event_id: str, files: list[UploadFile]) -> list[St
     return staged_files
 
 
-def _process_upload_job(job_id: str, uploader_user_id: str, event: EventRecord, staged_files: list[StagedUploadFile]) -> None:
+def _process_upload_job(job_id: str, uploader_user_id: str | None, event: EventRecord, staged_files: list[StagedUploadFile]) -> None:
     indexed_files = 0
     failed_files = 0
 
@@ -252,7 +262,7 @@ def _process_upload_job(job_id: str, uploader_user_id: str, event: EventRecord, 
 def _process_one_file(
     *,
     job_id: str,
-    uploader_user_id: str,
+    uploader_user_id: str | None,
     event: EventRecord,
     staged_file: StagedUploadFile,
 ) -> bool:
@@ -289,7 +299,7 @@ def _process_one_file(
         return False
 
 
-def _insert_photo_row(event_id: str, uploader_user_id: str, upload_result: dict) -> str:
+def _insert_photo_row(event_id: str, uploader_user_id: str | None, upload_result: dict) -> str:
     client = get_supabase_admin_client()
     payload = {
         "event_id": event_id,
@@ -342,10 +352,10 @@ def _insert_face_index_rows(event_id: str, photo_id: str, face_records: Iterable
         raise AppError("PictureMe could not update the photo face count", code="PHOTO_UPDATE_FAILED", status=500) from exc
 
 
-def _require_upload_access(user_id: str, event_id: str) -> tuple[EventRecord, EventRole]:
+def _require_upload_access(user_id: str | None, event_id: str) -> tuple[EventRecord, EventRole | str]:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,expires_at,join_token,rekognition_collection_id,cover_url,status,created_at"
+            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -354,6 +364,11 @@ def _require_upload_access(user_id: str, event_id: str) -> tuple[EventRecord, Ev
         raise AppError("Event not found", code="EVENT_NOT_FOUND", status=404)
 
     event = EventRecord.model_validate(response.data)
+    if user_id is None:
+        if event.allow_anyone_upload:
+            return event, "anonymous"
+        raise AppError("Missing authorization header", code="UNAUTHORIZED", status=401)
+
     if event.creator_id == user_id:
         return event, "creator"
 
@@ -369,6 +384,13 @@ def _require_upload_access(user_id: str, event_id: str) -> tuple[EventRecord, Ev
         raise AppError("Only event admins and creators can upload photos", code="FORBIDDEN", status=403)
 
     return event, "admin"
+
+
+def _clean_uploader_name(uploader_name: str | None, *, require_name: bool) -> str | None:
+    cleaned_name = (uploader_name or "").strip()
+    if require_name and not cleaned_name:
+        raise AppError("Anonymous uploads require an uploader name", code="VALIDATION_ERROR", status=422)
+    return cleaned_name[:50] if cleaned_name else None
 
 
 def delete_event_photo(current_user: AuthenticatedUser, *, event_id: str, photo_id: str) -> dict[str, bool]:
