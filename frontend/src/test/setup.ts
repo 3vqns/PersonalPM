@@ -33,6 +33,16 @@ Object.defineProperty(globalThis.URL, "revokeObjectURL", {
   value: vi.fn(),
 });
 
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  writable: true,
+  value: vi.fn(() => new Proxy({}, { get: () => vi.fn() })),
+});
+
+Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {
+  writable: true,
+  value: vi.fn(() => "data:image/png;base64,test"),
+});
+
 Object.defineProperty(navigator, "clipboard", {
   configurable: true,
   writable: true,

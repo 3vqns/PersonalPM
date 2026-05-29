@@ -66,6 +66,7 @@ Build a product that allows users to register their face to their account once, 
 - Prioritize reliable matching and delivery over social or editing features.
 - Keep organizer and contributor tools focused on event-specific upload and gallery workflows, not full studio management.
 - Keep event expiry disabled for the current product pass; the database can retain nullable expiry fields for a future paid feature.
+- Follow [Implementation Rules](/Users/tervin23/Documents/AG/PersonalPM/docs/implementation-rules.md) before merging Supabase, backend API, or frontend route changes.
 
 ## Success Criteria
 

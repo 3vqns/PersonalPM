@@ -12,6 +12,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { PhotoGrid } from "../components/PhotoGrid";
 import { PhotoLightbox } from "../components/PhotoLightbox";
+import { ShareEventPanel } from "../components/ShareEventPanel";
 import { ShareModal } from "../components/ShareModal";
 import { Spinner } from "../components/Spinner";
 import { UploadModal } from "../components/UploadModal";

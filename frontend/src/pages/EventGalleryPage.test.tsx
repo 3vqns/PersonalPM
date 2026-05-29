@@ -92,7 +92,9 @@ describe("EventGalleryPage", () => {
     expect(supabase.channel).toHaveBeenCalled();
   });
 
-  it("shows the personal gallery share panel on My Photos", async () => {
+  it("opens the share modal with the personal gallery link", async () => {
+    const user = userEvent.setup();
+
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -165,12 +167,14 @@ describe("EventGalleryPage", () => {
     );
 
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
-    expect(await screen.findByText("Share your photos instantly")).toBeInTheDocument();
-    expect(screen.getByText("Gallery link")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^share$/i }));
+
+    expect(await screen.findByText("Share your matched photos")).toBeInTheDocument();
+    expect(screen.getAllByText("Gallery link")).toHaveLength(2);
     expect(screen.getByText("https://example.com/gallery/gallery-token")).toBeInTheDocument();
   });
 
-  it("shows the full event gallery share panel on All Photos", async () => {
+  it("opens the share modal with the full gallery link", async () => {
     const user = userEvent.setup();
 
     mockedUseAuth.mockReturnValue({
@@ -244,9 +248,60 @@ describe("EventGalleryPage", () => {
     );
 
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /all photos/i }));
+    await user.click(screen.getByRole("button", { name: /^share$/i }));
 
     expect(await screen.findByText("Share the full event gallery")).toBeInTheDocument();
+    expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
+  });
+
+  it("renders the created event share panel for creators", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: { id: "creator-1", email: "me@example.com", name: "Taylor", hasFaceProfile: true },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/event-1") {
+        return {
+          id: "event-1",
+          name: "Launch Party",
+          date: "2026-05-10",
+          status: "active",
+          joinToken: "join-token",
+          role: "creator",
+          creator: { id: "creator-1", name: "Taylor" },
+          counts: { allPhotos: 0, myPhotos: 0, members: 1 },
+        };
+      }
+
+      if (path === "/api/events/event-1/photos") {
+        return { photos: [] };
+      }
+
+      if (path === "/api/events/event-1/my-photos") {
+        return {
+          photos: [],
+          hasFaceProfile: true,
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1?created=1"]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventGalleryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Share this event instantly")).toBeInTheDocument();
     expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
   });
 });
