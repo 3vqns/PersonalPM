@@ -1,5 +1,5 @@
 import { getDemoApiResponse, isDemoMode } from "./demo";
-import { supabase } from "./supabase";
+import { getCurrentSession } from "./authSession";
 
 type AuthMode = boolean | "optional";
 
@@ -31,9 +31,7 @@ export async function apiFetch<T = unknown>(
   const requestBody = serializeBody(body, requestHeaders);
 
   if (auth !== false) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const session = await getCurrentSession();
 
     if (session?.access_token) {
       requestHeaders.set("Authorization", `Bearer ${session.access_token}`);

@@ -22,17 +22,19 @@ def clear_cached_settings() -> Iterator[None]:
     from backend.config import getSettings
     from backend.core.cloudinary import configure_cloudinary
     from backend.core.rekognition import get_rekognition_client
-    from backend.dependencies.auth import get_supabase_client
+    from backend.dependencies.auth import clear_auth_user_cache, get_supabase_client
 
     getSettings.cache_clear()
     configure_cloudinary.cache_clear()
     get_rekognition_client.cache_clear()
     get_supabase_client.cache_clear()
+    clear_auth_user_cache()
     yield
     getSettings.cache_clear()
     configure_cloudinary.cache_clear()
     get_rekognition_client.cache_clear()
     get_supabase_client.cache_clear()
+    clear_auth_user_cache()
 
 
 @pytest.fixture
@@ -49,4 +51,3 @@ def client(app) -> Iterator[TestClient]:
     """Return a synchronous test client for route assertions."""
     with TestClient(app) as test_client:
         yield test_client
-

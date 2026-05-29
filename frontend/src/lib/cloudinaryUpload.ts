@@ -22,6 +22,8 @@ export async function uploadToCloudinary(
   file: File,
   token: CloudinaryUploadToken,
 ): Promise<CloudinaryUploadResult> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 60000);
   const formData = new FormData();
   formData.append("file", file);
   formData.append("api_key", token.apiKey);
@@ -30,10 +32,20 @@ export async function uploadToCloudinary(
   formData.append("folder", token.folder);
   formData.append("eager", token.eager);
 
-  const response = await fetch(
-    `https://api.cloudinary.com/v1_1/${token.cloudName}/image/upload`,
-    { method: "POST", body: formData },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://api.cloudinary.com/v1_1/${token.cloudName}/image/upload`,
+      { method: "POST", body: formData, signal: controller.signal },
+    );
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Photo upload timed out. Try a smaller file or check your connection.");
+    }
+    throw new Error("PictureMe could not reach photo storage. Check your connection and try again.");
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     let message = "Failed to upload photo to storage";
