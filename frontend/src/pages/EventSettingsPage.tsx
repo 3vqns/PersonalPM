@@ -4,9 +4,19 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { ShareEventPanel } from "../components/ShareEventPanel";
 import { Spinner } from "../components/Spinner";
+import { cn } from "../lib/cn";
 import { apiFetch } from "../lib/api";
 import { formatDate } from "../lib/date";
 import type { EventDetail, EventMember } from "../types";
+
+const TAG_OPTIONS = [
+  "Wedding",
+  "Conference",
+  "Party",
+  "Sports",
+  "Networking",
+  "Other",
+] as const;
 
 export function EventSettingsPage() {
   const { id = "" } = useParams();
@@ -18,7 +28,10 @@ export function EventSettingsPage() {
     date: "",
     description: "",
     allowAnyoneUpload: false,
+    tags: [] as string[],
+    otherTagText: "",
   });
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,11 +54,19 @@ export function EventSettingsPage() {
 
         setEvent(eventResponse);
         setMembers(membersResponse);
+        // Separate stored tags into known options vs the "Other" write-in
+        const knownOptions = TAG_OPTIONS.filter((o) => o !== "Other") as readonly string[];
+        const storedTags = eventResponse.tags ?? [];
+        const knownTags = storedTags.filter((t) => knownOptions.includes(t));
+        const otherTag = storedTags.find((t) => !knownOptions.includes(t));
+
         setForm({
           name: eventResponse.name,
           date: eventResponse.date,
           description: eventResponse.description ?? "",
           allowAnyoneUpload: eventResponse.allowAnyoneUpload ?? false,
+          tags: otherTag ? [...knownTags, "Other"] : knownTags,
+          otherTagText: otherTag ?? "",
         });
       } catch (requestError) {
         setError(
@@ -61,11 +82,31 @@ export function EventSettingsPage() {
     void loadSettings();
   }, [id, navigate]);
 
+  function toggleTag(tag: string) {
+    setForm((prev) => ({
+      ...prev,
+      tags: prev.tags.includes(tag)
+        ? prev.tags.filter((t) => t !== tag)
+        : [...prev.tags, tag],
+      otherTagText:
+        tag === "Other" && prev.tags.includes("Other") ? "" : prev.otherTagText,
+    }));
+  }
+
   async function handleSave(eventForm: FormEvent<HTMLFormElement>) {
     eventForm.preventDefault();
     setSaving(true);
     setError(null);
     setSuccess(null);
+
+    // Build final tags array: replace "Other" placeholder with the typed text
+    const finalTags = form.tags
+      .filter((t) => t !== "Other")
+      .concat(
+        form.tags.includes("Other") && form.otherTagText.trim()
+          ? [form.otherTagText.trim()]
+          : [],
+      );
 
     try {
       const response = await apiFetch<EventDetail>(`/api/events/${id}`, {
@@ -75,6 +116,7 @@ export function EventSettingsPage() {
           date: form.date,
           description: form.description,
           allow_anyone_upload: form.allowAnyoneUpload,
+          tags: finalTags,
         },
       });
       setEvent(response);
@@ -148,23 +190,55 @@ export function EventSettingsPage() {
   return (
     <div className="page-shell space-y-6">
       {deleteOpen ? (
-        <Modal title="Delete event" onClose={() => setDeleteOpen(false)} className="sm:max-w-lg">
-          <div className="space-y-4">
-            <p className="text-sm leading-6 text-slate">
-              Deleting this event removes the gallery, QR code, and member access.
-              This action cannot be undone.
-            </p>
+        <Modal
+          title="Delete event"
+          onClose={() => {
+            setDeleteOpen(false);
+            setDeleteConfirmName("");
+          }}
+          className="sm:max-w-lg"
+        >
+          <div className="space-y-5">
+            <div className="rounded-[16px] border border-red-100 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-700">
+                This will permanently delete &ldquo;{event.name}&rdquo;
+              </p>
+              <p className="mt-1 text-sm leading-6 text-red-600">
+                All photos, member access, and QR codes will be removed immediately.
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-ink">
+                Type the event name to confirm:
+              </label>
+              <div className="field-shell">
+                <input
+                  className="field-input"
+                  value={deleteConfirmName}
+                  onChange={(inputEvent) =>
+                    setDeleteConfirmName(inputEvent.target.value)
+                  }
+                  placeholder={event.name}
+                  autoComplete="off"
+                />
+              </div>
+            </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 className="secondary-button flex-1"
-                onClick={() => setDeleteOpen(false)}
+                onClick={() => {
+                  setDeleteOpen(false);
+                  setDeleteConfirmName("");
+                }}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="primary-button flex-1 bg-red-600 hover:bg-red-700"
+                className="primary-button flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={deleteConfirmName !== event.name}
                 onClick={() => void handleDeleteEvent()}
               >
                 Delete event
@@ -228,6 +302,47 @@ export function EventSettingsPage() {
               />
             </div>
           </label>
+
+          {/* Tags */}
+          <div className="space-y-2 lg:col-span-2">
+            <span className="text-sm font-medium text-ink">
+              Tags{" "}
+              <span className="font-normal text-slate">(optional, select all that apply)</span>
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {TAG_OPTIONS.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleTag(tag)}
+                  className={cn(
+                    "rounded-full border px-4 py-1.5 text-sm font-medium transition",
+                    form.tags.includes(tag)
+                      ? "border-[#4b3528] bg-ink text-[#fff8f0]"
+                      : "border-[#e3d6c8] bg-[#fff9f2]/75 text-ink hover:bg-white",
+                  )}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+            {form.tags.includes("Other") ? (
+              <div className="field-shell">
+                <input
+                  className="field-input"
+                  value={form.otherTagText}
+                  onChange={(inputEvent) =>
+                    setForm((value) => ({
+                      ...value,
+                      otherTagText: inputEvent.target.value,
+                    }))
+                  }
+                  placeholder="Describe your event type (e.g. Birthday Party)"
+                  maxLength={30}
+                />
+              </div>
+            ) : null}
+          </div>
 
           {/* Allow anyone to upload toggle */}
           <label className="flex cursor-pointer items-start gap-4 rounded-[28px] border border-ink/10 p-4 lg:col-span-2 hover:bg-ink/[0.02] transition">
