@@ -44,6 +44,7 @@ export function EventPeoplePage() {
   );
   const canManagePrivateAccess = event?.role === "creator" || event?.role === "admin";
   const canManageRoles = event?.role === "creator";
+  const canRemoveMembers = event?.role === "creator" || event?.role === "admin";
   const tabs = useMemo(
     () =>
       [
@@ -200,6 +201,43 @@ export function EventPeoplePage() {
     }
   }
 
+  async function handleRemoveMember(person: EventPerson) {
+    if (person.role === "creator" || person.kind === "anonymous") {
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove ${person.name} from this event?`);
+    if (!confirmed) {
+      return;
+    }
+
+    const currentResponse = peopleResponse;
+    setPeopleResponse((response) =>
+      response
+        ? {
+            ...response,
+            people: response.people.filter((item) => item.id !== person.id),
+          }
+        : response,
+    );
+    setAccessRows((rows) => rows.filter((row) => row.user.id !== person.id));
+    setError(null);
+
+    try {
+      await apiFetch(`/api/events/${id}/members/${person.id}`, {
+        method: "DELETE",
+      });
+      setSuccess(`${person.name} was removed from the event.`);
+    } catch (requestError) {
+      setPeopleResponse(currentResponse);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "PictureMe could not remove this member.",
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div className="page-shell flex min-h-[60vh] items-center justify-center">
@@ -285,7 +323,9 @@ export function EventPeoplePage() {
                 key={person.id}
                 person={person}
                 canManageRoles={canManageRoles}
+                canRemoveMembers={canRemoveMembers}
                 onRoleToggle={handleRoleToggle}
+                onRemoveMember={handleRemoveMember}
               />
             ))}
             {!members.length ? (
@@ -370,9 +410,9 @@ export function EventPeoplePage() {
                 </p>
               )}
             </div>
-            {success ? <p className="text-sm text-seafoam-700">{success}</p> : null}
           </div>
         ) : null}
+        {success ? <p className="text-sm text-seafoam-700">{success}</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </section>
     </div>
@@ -382,11 +422,15 @@ export function EventPeoplePage() {
 function PersonRow({
   person,
   canManageRoles = false,
+  canRemoveMembers = false,
   onRoleToggle,
+  onRemoveMember,
 }: {
   person: EventPerson;
   canManageRoles?: boolean;
+  canRemoveMembers?: boolean;
   onRoleToggle?: (person: EventPerson) => void;
+  onRemoveMember?: (person: EventPerson) => void;
 }) {
   const isCreator = person.role === "creator";
   const isAdmin = person.role === "admin";
@@ -432,6 +476,15 @@ function PersonRow({
             onClick={() => onRoleToggle(person)}
           >
             {isAdmin ? "Remove admin" : "Make admin"}
+          </button>
+        ) : null}
+        {canRemoveMembers && !isCreator && !isAnonymous && onRemoveMember ? (
+          <button
+            type="button"
+            className="secondary-button min-h-0 border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50"
+            onClick={() => onRemoveMember(person)}
+          >
+            Remove
           </button>
         ) : null}
       </div>

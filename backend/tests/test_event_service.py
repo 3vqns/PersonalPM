@@ -54,6 +54,8 @@ class _FakeTable:
         self.last_payload = payload
         if self.name == "event_members":
             self.client.upserted_memberships.append((payload, on_conflict))
+        if self.name == "event_gallery_access":
+            self.client.upserted_gallery_access.append((payload, on_conflict))
         return self
 
     def select(self, *_args, **_kwargs):
@@ -76,6 +78,7 @@ class _FakeClient:
         self.inserted_event_payloads: list[dict] = []
         self.updated_event_payloads: list[dict] = []
         self.upserted_memberships: list[tuple[dict, str | None]] = []
+        self.upserted_gallery_access: list[tuple[dict, str | None]] = []
 
     def table(self, _name: str):
         return _FakeTable(_name, self)
@@ -134,6 +137,18 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
                 "event_id": event.id,
                 "user_id": current_user.user_id,
                 "role": "member",
+            },
+            "event_id,user_id",
+        )
+    ]
+    assert client.upserted_gallery_access == [
+        (
+            {
+                "event_id": event.id,
+                "user_id": current_user.user_id,
+                "status": "approved",
+                "invited_by": event.creator_id,
+                "approved_at": client.upserted_gallery_access[0][0]["approved_at"],
             },
             "event_id,user_id",
         )
@@ -208,6 +223,72 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
             "user_id": "user-1",
             "status": "pending",
         }
+    ]
+
+
+def test_remove_event_member_deletes_membership_access_and_matches(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="creator-1",
+        email="creator@example.com",
+        access_token="token",
+        raw_user={"id": "creator-1", "email": "creator@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    deleted_filters: list[tuple[str, dict[str, str]]] = []
+
+    class _DeleteTable:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.filters: dict[str, str] = {}
+
+        def delete(self):
+            return self
+
+        def eq(self, key: str, value: str):
+            self.filters[key] = value
+            return self
+
+        def execute(self):
+            deleted_filters.append((self.name, self.filters))
+            return SimpleNamespace(data=[])
+
+    class _DeleteClient:
+        def table(self, name: str):
+            return _DeleteTable(name)
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_require_event_manager", lambda _user_id, _event: "creator")
+    monkeypatch.setattr(
+        event_service,
+        "_get_membership",
+        lambda _event_id, _user_id: EventMemberRecord(
+            id="membership-1",
+            event_id="event-1",
+            user_id="user-1",
+            role="member",
+            joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+        ),
+    )
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _DeleteClient())
+
+    response = event_service.remove_event_member(current_user, event_id=event.id, member_user_id="user-1")
+
+    assert response == {"success": True}
+    assert deleted_filters == [
+        ("event_gallery_access", {"event_id": "event-1", "user_id": "user-1"}),
+        ("user_photo_matches", {"event_id": "event-1", "user_id": "user-1"}),
+        ("event_members", {"event_id": "event-1", "user_id": "user-1"}),
     ]
 
 

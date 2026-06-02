@@ -21,7 +21,8 @@ The backend in [backend](/Users/tervin23/Documents/AG/PersonalPM/backend) is the
 - Supabase remains the source of truth for auth and relational data.
 - Frontend application code should call backend routes for account, dashboard, event, gallery, upload, share-token, and cleanup-adjacent behavior instead of querying `public.users`, `events`, or `event_members` directly.
 - Event settings updates are allowed for event owners and admins, while deletion and admin role changes remain owner-only.
-- Private-gallery requests create or preserve event membership with pending gallery access; approval grants gallery viewing and ensures the approved user is an event member.
+- Private-gallery requests create or preserve event membership with pending gallery access; approval grants gallery viewing and ensures the approved user is an event member. Public event joins create approved gallery-access rows immediately so public invite/QR registration cannot leave members with `none` access.
+- Event member removal deletes the user's `event_members` row, gallery-access row, and event photo matches so the event no longer appears from membership-based dashboard queries.
 
 ## Frontend Integration Expectations
 
