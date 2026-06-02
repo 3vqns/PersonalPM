@@ -1,14 +1,12 @@
 import {
   AlertCircle,
-  Check,
   Crown,
-  MailPlus,
   ShieldCheck,
   Trash2,
   User,
   UserRound,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Spinner } from "../components/Spinner";
 import { apiFetch } from "../lib/api";
@@ -17,18 +15,14 @@ import type {
   EventPeopleResponse,
   EventPerson,
   EventRole,
-  GalleryAccessEntry,
 } from "../types";
 
-type PeopleTab = "users" | "anonymous" | "privateAccess";
+type PeopleTab = "users" | "anonymous";
 
 export function EventPeoplePage() {
   const { id = "" } = useParams();
   const [peopleResponse, setPeopleResponse] = useState<EventPeopleResponse | null>(null);
-  const [accessRows, setAccessRows] = useState<GalleryAccessEntry[]>([]);
-  const [inviteEmail, setInviteEmail] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PeopleTab>("users");
@@ -42,7 +36,6 @@ export function EventPeoplePage() {
     () => peopleResponse?.people.filter((person) => person.kind === "anonymous") ?? [],
     [peopleResponse],
   );
-  const canManagePrivateAccess = event?.role === "creator" || event?.role === "admin";
   const canManageRoles = event?.role === "creator";
   const canRemoveMembers = event?.role === "creator" || event?.role === "admin";
   const tabs = useMemo(
@@ -50,11 +43,8 @@ export function EventPeoplePage() {
       [
         { id: "users" as const, label: "Users", count: members.length },
         { id: "anonymous" as const, label: "Anonymous Users", count: anonymousUploaders.length },
-        ...(event?.privateGallery && canManagePrivateAccess
-          ? [{ id: "privateAccess" as const, label: "Private Access List", count: accessRows.length }]
-          : []),
       ],
-    [accessRows.length, anonymousUploaders.length, canManagePrivateAccess, event?.privateGallery, members.length],
+    [anonymousUploaders.length, members.length],
   );
 
   useEffect(() => {
@@ -73,15 +63,6 @@ export function EventPeoplePage() {
     try {
       const response = await apiFetch<EventPeopleResponse>(`/api/events/${id}/people`);
       setPeopleResponse(response);
-      if (
-        response.event.privateGallery &&
-        (response.event.role === "creator" || response.event.role === "admin")
-      ) {
-        const accessResponse = await apiFetch<GalleryAccessEntry[]>(
-          `/api/events/${id}/gallery-access`,
-        );
-        setAccessRows(accessResponse);
-      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -90,81 +71,6 @@ export function EventPeoplePage() {
       );
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleInvite(eventForm: FormEvent<HTMLFormElement>) {
-    eventForm.preventDefault();
-    if (!inviteEmail.trim()) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const response = await apiFetch<GalleryAccessEntry>(
-        `/api/events/${id}/gallery-access`,
-        {
-          method: "POST",
-          body: { email: inviteEmail.trim() },
-        },
-      );
-      setAccessRows((rows) => [
-        response,
-        ...rows.filter((row) => row.user.id !== response.user.id),
-      ]);
-      setInviteEmail("");
-      setSuccess("Gallery access added.");
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "PictureMe could not add gallery access.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleApprove(row: GalleryAccessEntry) {
-    await updateAccess(row.user.id, "approved");
-  }
-
-  async function updateAccess(userId: string, status: "approved" | "pending") {
-    setError(null);
-    try {
-      const response = await apiFetch<GalleryAccessEntry>(
-        `/api/events/${id}/gallery-access/${userId}`,
-        {
-          method: "PATCH",
-          body: { status },
-        },
-      );
-      setAccessRows((rows) =>
-        rows.map((row) => (row.user.id === userId ? response : row)),
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "PictureMe could not update gallery access.",
-      );
-    }
-  }
-
-  async function handleRemoveAccess(userId: string) {
-    setError(null);
-    try {
-      await apiFetch(`/api/events/${id}/gallery-access/${userId}`, {
-        method: "DELETE",
-      });
-      setAccessRows((rows) => rows.filter((row) => row.user.id !== userId));
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "PictureMe could not remove gallery access.",
-      );
     }
   }
 
@@ -220,7 +126,6 @@ export function EventPeoplePage() {
           }
         : response,
     );
-    setAccessRows((rows) => rows.filter((row) => row.user.id !== person.id));
     setError(null);
 
     try {
@@ -350,68 +255,6 @@ export function EventPeoplePage() {
           )
         ) : null}
 
-        {activeTab === "privateAccess" && event.privateGallery && canManagePrivateAccess ? (
-          <div className="space-y-5">
-            <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleInvite}>
-              <div className="field-shell flex-1">
-                <input
-                  className="field-input"
-                  type="email"
-                  value={inviteEmail}
-                  placeholder="person@example.com"
-                  onChange={(inputEvent) => setInviteEmail(inputEvent.target.value)}
-                />
-              </div>
-              <button type="submit" className="primary-button" disabled={saving}>
-                <MailPlus className="mr-2 h-4 w-4" />
-                {saving ? "Adding..." : "Add user"}
-              </button>
-            </form>
-
-            <div className="space-y-3">
-              {accessRows.length ? (
-                accessRows.map((row) => (
-                  <div
-                    key={row.id}
-                    className="flex flex-col gap-4 rounded-lg border border-ink/10 p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <p className="font-medium text-ink">{row.user.name}</p>
-                      <p className="text-sm text-slate">{row.user.email}</p>
-                    </div>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <span className="rounded-full bg-ivory px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate">
-                        {row.status}
-                      </span>
-                      {row.status === "pending" ? (
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => void handleApprove(row)}
-                        >
-                          <Check className="mr-2 h-4 w-4" />
-                          Approve
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="secondary-button border-red-200 text-red-600 hover:bg-red-50"
-                        onClick={() => void handleRemoveAccess(row.user.id)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="rounded-lg bg-ivory/70 p-4 text-sm text-slate">
-                  No private-gallery access rows yet.
-                </p>
-              )}
-            </div>
-          </div>
-        ) : null}
         {success ? <p className="text-sm text-seafoam-700">{success}</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </section>

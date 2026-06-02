@@ -148,7 +148,7 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
     assert kwargs == {"user_id": current_user.user_id, "event_id": event.id, "reason": "event-join"}
 
 
-def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None:
+def test_join_stale_private_event_flag_still_adds_member(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",
         email="user@example.com",
@@ -168,7 +168,6 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
         created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
         private_gallery=True,
     )
-    ensured_members: list[tuple[str, str]] = []
     client = _FakeClient()
 
     monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
@@ -185,27 +184,23 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
         ),
     )
     monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
-    monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
-    monkeypatch.setattr(event_service, "_get_gallery_access_status", lambda _event_id, _user_id: None)
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
 
     response = event_service.join_event(current_user, event_id=event.id, background_tasks=FakeBackgroundTasks())
 
     assert response.role == "member"
-    assert response.gallery_access_status == "pending"
-    assert ensured_members == []
-    assert client.upserted_gallery_access == [
+    assert response.gallery_access_status == "approved"
+    assert client.upserted_memberships == [
         (
             {
                 "event_id": "event-1",
                 "user_id": "user-1",
-                "status": "pending",
-                "invited_by": "creator-1",
-                "approved_at": None,
+                "role": "member",
             },
             "event_id,user_id",
         )
     ]
+    assert client.upserted_gallery_access == []
 
 
 def test_join_public_event_uses_membership_only_for_existing_member(monkeypatch) -> None:

@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowRight, CalendarDays, Images, Upload, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { FaceScanCapture } from "../components/FaceScanCapture";
 import { GoogleAuthButton } from "../components/GoogleAuthButton";
@@ -40,7 +40,6 @@ export function JoinEventPage() {
   const [debugError, setDebugError] = useState<ApiError | null>(null);
   const [registrationStatus, setRegistrationStatus] = useState<"idle" | "joining" | "joined" | "failed">("idle");
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  const [requestSent, setRequestSent] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Anonymous upload state
   const [namePromptOpen, setNamePromptOpen] = useState(false);
@@ -52,7 +51,6 @@ export function JoinEventPage() {
     autoJoinAttemptedRef.current = false;
     setRegistrationStatus("idle");
     setRegistrationError(null);
-    setRequestSent(false);
   }, [token]);
 
   useEffect(() => {
@@ -155,10 +153,6 @@ export function JoinEventPage() {
       const joinResponse = await apiFetch<EventJoinResponse>(`/api/events/join/${token}`, {
         method: "POST",
       });
-      if (joinResponse.galleryAccessStatus === "pending") {
-        setRequestSent(true);
-        return;
-      }
       navigate(`/event/${joinResponse.eventId}`, { replace: true });
     } catch (requestError) {
       setError(
@@ -258,25 +252,6 @@ export function JoinEventPage() {
             </p>
             {debugError ? <InviteDebugDetails error={debugError} /> : null}
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (requestSent) {
-    return (
-      <div className="page-shell max-w-2xl">
-        <div className="surface-card space-y-4 p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-            Request sent
-          </p>
-          <h1 className="text-3xl text-ink">Request to join {preview.name} sent!</h1>
-          <p className="text-sm leading-6 text-slate">
-            An event owner or admin needs to approve your gallery access before the event appears on your dashboard.
-          </p>
-          <Link to="/dashboard" className="secondary-button w-fit">
-            Back to dashboard
-          </Link>
         </div>
       </div>
     );

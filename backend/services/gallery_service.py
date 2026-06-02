@@ -75,9 +75,6 @@ def get_shared_gallery(token: str) -> GalleryResponse:
     """Return the token owner's matched-photo gallery only."""
     token_record = _get_gallery_token_or_404(token)
     event = _get_event_or_404(token_record.event_id)
-    if event.private_gallery:
-        raise AppError("This shared gallery is private", code="GALLERY_ACCESS_REQUIRED", status=403)
-
     owner = _get_public_user_by_id(token_record.user_id)
     matched_photos = _list_user_matched_photos(user_id=token_record.user_id, event_id=event.id)
     download_url = matched_photos[0][1].cloudinary_url if matched_photos else None
@@ -210,32 +207,6 @@ def _require_event_membership(user_id: str, event: EventRecord) -> None:
 
 def _require_gallery_access(user_id: str, event: EventRecord) -> None:
     _require_event_membership(user_id, event)
-    if not event.private_gallery:
-        return
-    if event.creator_id == user_id:
-        return
-
-    try:
-        role_response = get_supabase_admin_client().table("event_members").select("role").eq(
-            "event_id", event.id
-        ).eq("user_id", user_id).maybe_single().execute()
-    except Exception as exc:
-        raise AppError("PictureMe could not verify event access", code="EVENT_ACCESS_FAILED", status=500) from exc
-
-    if role_response.data and role_response.data.get("role") == "admin":
-        return
-
-    try:
-        access_response = get_supabase_admin_client().table("event_gallery_access").select("status").eq(
-            "event_id", event.id
-        ).eq("user_id", user_id).maybe_single().execute()
-    except Exception as exc:
-        if _is_missing_gallery_access_table(exc):
-            raise AppError("Request access before viewing this private gallery", code="GALLERY_ACCESS_REQUIRED", status=403) from exc
-        raise AppError("PictureMe could not verify gallery access", code="ACCESS_FETCH_FAILED", status=500) from exc
-
-    if not access_response.data or access_response.data.get("status") != "approved":
-        raise AppError("Request access before viewing this private gallery", code="GALLERY_ACCESS_REQUIRED", status=403)
 
 
 def _list_event_photos(event_id: str) -> list[PhotoRecord]:

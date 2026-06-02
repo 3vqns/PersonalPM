@@ -22,8 +22,8 @@ The backend in [backend](/Users/tervin23/Documents/AG/PersonalPM/backend) is the
 - Frontend application code should call backend routes for account, dashboard, event, gallery, upload, share-token, and cleanup-adjacent behavior instead of querying `public.users`, `events`, or `event_members` directly.
 - Event settings updates are allowed for event owners and admins, while deletion and admin role changes remain owner-only.
 - Personal gallery shares and full event gallery shares are read-only public token routes. They must not create `event_members` rows or gallery-access rows.
-- Join tokens are registration-only. A signed-in public join creates or repairs event membership only; a signed-in private join creates or reuses a pending access request without creating event membership.
-- Private-gallery pending requests live only in `event_gallery_access`. Approval grants gallery viewing and creates or repairs the user's `event_members` row. Public gallery viewing is controlled by `event_members`, not `event_gallery_access`.
+- Join tokens are registration-only. A signed-in join creates or repairs event membership only.
+- Private-gallery behavior is disabled for now. `event_gallery_access` may still exist in the schema for future work, but current gallery viewing is controlled by `event_members`, not `event_gallery_access`.
 - Event member removal deletes the user's `event_members` row, gallery-access row, and event photo matches so the event no longer appears from membership-based dashboard queries.
 
 ## Frontend Integration Expectations

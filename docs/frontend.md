@@ -18,20 +18,18 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - [frontend/src/pages/EventGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventGalleryPage.tsx): Shows event metadata, including the event description, and uses one header Share button that opens a modal for personal gallery sharing or full gallery sharing. Both share options are read-only public gallery views and do not register viewers for the event.
 - [frontend/src/pages/PublicGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/PublicGalleryPage.tsx): Renders public tokenized gallery views for `/gallery/{token}` personal shares and `/event-gallery/{token}` full-event shares.
 - [frontend/src/components/EventCard.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/EventCard.tsx): Shows event details and the event location on dashboard cards instead of placeholder venue copy.
-- [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Uses tabs for signed-in users, anonymous uploaders, and private-gallery access rows when private mode is enabled. Owners can promote or demote admins from the Users tab; owners and admins can approve, invite, or remove private-gallery access from the Private Access List tab.
+- [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Uses tabs for signed-in users and anonymous uploaders. Owners can promote or demote admins from the Users tab.
 - [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Lets owners and admins remove signed-in members from the Users tab. Removal fully removes event membership so the event disappears from that user's dashboard.
-- [frontend/src/pages/EventSettingsPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventSettingsPage.tsx): Lets event owners and admins update description, location, anonymous uploads, and private gallery mode. Only owners see the event deletion controls.
+- [frontend/src/pages/EventSettingsPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventSettingsPage.tsx): Lets event owners and admins update description, location, and anonymous uploads. Only owners see the event deletion controls.
 - [frontend/src/components/PhotoLightbox.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/PhotoLightbox.tsx): Shows the display name of the person who uploaded a photo next to the lightbox Share button when uploader metadata exists.
 - [frontend/src/components/UploadModal.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/UploadModal.tsx): Shows the 100-photo batch cap and blocks over-limit selections before any upload request starts.
 
-## Current Private Gallery Access Behavior
+## Current Gallery Access Behavior
 
-- Private gallery mode is event-scoped. When enabled, only the creator, admins, and approved gallery-access users can read gallery photos.
-- Signed-in users who scan a private-gallery join QR receive a request-sent screen and do not see the event on their dashboard until an owner or admin approves them.
-- Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
-- Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
+- Private gallery mode is currently disabled. The frontend does not expose a private-gallery checkbox or private access list.
+- Event gallery access is based on event membership. Owners, admins, and members can view the event gallery.
 - Event gallery share links and QR codes do not use join tokens. Personal Gallery Share uses `/gallery/{token}` and Full Gallery Share uses `/event-gallery/{token}` so signed-in and signed-out visitors can view the shared photos without changing event membership.
-- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration: public events add the user as an event member, while private events create a pending gallery-access request for owner or admin review.
+- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration and adds or repairs event membership.
 - Gallery load failures show safe troubleshooting copy to normal users and a request reference when one exists. Local development builds can show endpoint/code/details behind the troubleshooting panel for debugging.
 
 ## Remaining Backend Integration Cleanup

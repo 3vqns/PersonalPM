@@ -28,7 +28,6 @@ export function EventSettingsPage() {
     location: "TBD",
     description: "",
     allowAnyoneUpload: false,
-    privateGallery: false,
     tags: [] as string[],
     otherTagText: "",
   });
@@ -63,7 +62,6 @@ export function EventSettingsPage() {
           location: eventResponse.location ?? "TBD",
           description: eventResponse.description ?? "",
           allowAnyoneUpload: eventResponse.allowAnyoneUpload ?? false,
-          privateGallery: eventResponse.privateGallery ?? false,
           tags: otherTag ? [...knownTags, "Other"] : knownTags,
           otherTagText: otherTag ?? "",
         });
@@ -116,7 +114,6 @@ export function EventSettingsPage() {
           location: form.location.trim() || "TBD",
           description: form.description,
           allow_anyone_upload: form.allowAnyoneUpload,
-          privateGallery: form.privateGallery,
           tags: finalTags,
         },
       });
@@ -358,27 +355,6 @@ export function EventSettingsPage() {
             </div>
           </label>
 
-          <label className="flex cursor-pointer items-start gap-4 rounded-[28px] border border-ink/10 p-4 lg:col-span-2 hover:bg-ink/[0.02] transition">
-            <div className="flex h-5 items-center">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded accent-seafoam-500 cursor-pointer"
-                checked={form.privateGallery}
-                onChange={(inputEvent) =>
-                  setForm((value) => ({
-                    ...value,
-                    privateGallery: inputEvent.target.checked,
-                  }))
-                }
-              />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-ink">Require approval to view gallery</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate">
-                When enabled, only the owner, admins, and approved users can view event photos.
-              </p>
-            </div>
-          </label>
           <div className="lg:col-span-2 flex flex-col gap-3 sm:flex-row">
             <button type="submit" className="primary-button" disabled={saving}>
               {saving ? "Saving..." : "Save changes"}
@@ -401,7 +377,7 @@ export function EventSettingsPage() {
         joinToken={event.joinToken}
         eyebrow="Join event"
         title="Register guests"
-        description="Use this signed-in join link or QR code to add guests to public events or collect access requests for private galleries."
+        description="Use this signed-in join link or QR code to add guests to this event."
         linkLabel="Join link"
         copyLabel="Copy join link"
         downloadLabel="Download join QR"

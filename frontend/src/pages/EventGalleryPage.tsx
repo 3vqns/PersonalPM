@@ -31,7 +31,6 @@ import type {
   MatchedPhoto,
   MyPhotosResponse,
   Photo,
-  GalleryAccessRequestResponse,
   ShareGalleryTokenResponse,
 } from "../types";
 
@@ -68,8 +67,6 @@ export function EventGalleryPage() {
   const [galleryShareError, setGalleryShareError] = useState<string | null>(null);
   const [eventGalleryShareUrl, setEventGalleryShareUrl] = useState<string | null>(null);
   const [eventGalleryShareError, setEventGalleryShareError] = useState<string | null>(null);
-  const [accessRequesting, setAccessRequesting] = useState(false);
-  const [accessMessage, setAccessMessage] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     const response = await loadEventWithAccessRepair(id);
@@ -115,44 +112,37 @@ export function EventGalleryPage() {
     try {
       const eventResponse = await loadEventWithAccessRepair(id);
       setEvent(eventResponse);
-      if (canViewGallery(eventResponse)) {
-        const [allPhotosResult, myPhotosResult, peopleResult] = await Promise.allSettled([
-          apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`),
-          apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`),
-          apiFetch<EventPeopleResponse>(`/api/events/${id}/people`),
-        ]);
-        const galleryMessages: string[] = [];
+      const [allPhotosResult, myPhotosResult, peopleResult] = await Promise.allSettled([
+        apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`),
+        apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`),
+        apiFetch<EventPeopleResponse>(`/api/events/${id}/people`),
+      ]);
+      const galleryMessages: string[] = [];
 
-        if (allPhotosResult.status === "fulfilled") {
-          setAllPhotos(allPhotosResult.value.photos);
-        } else {
-          setAllPhotos([]);
-          galleryMessages.push(getGalleryLoadMessage(allPhotosResult.reason));
-        }
-
-        if (myPhotosResult.status === "fulfilled") {
-          setMyPhotos(myPhotosResult.value.photos);
-          setHasFaceProfile(myPhotosResult.value.hasFaceProfile);
-        } else {
-          setMyPhotos([]);
-          setHasFaceProfile(true);
-          galleryMessages.push(getGalleryLoadMessage(myPhotosResult.reason));
-        }
-
-        if (peopleResult.status === "fulfilled") {
-          setTopUploaders(getTopUploaders(peopleResult.value.people));
-        } else {
-          setTopUploaders([]);
-        }
-
-        if (galleryMessages.length) {
-          setGalleryError(galleryMessages[0]);
-        }
+      if (allPhotosResult.status === "fulfilled") {
+        setAllPhotos(allPhotosResult.value.photos);
       } else {
         setAllPhotos([]);
+        galleryMessages.push(getGalleryLoadMessage(allPhotosResult.reason));
+      }
+
+      if (myPhotosResult.status === "fulfilled") {
+        setMyPhotos(myPhotosResult.value.photos);
+        setHasFaceProfile(myPhotosResult.value.hasFaceProfile);
+      } else {
         setMyPhotos([]);
-        setTopUploaders([]);
         setHasFaceProfile(true);
+        galleryMessages.push(getGalleryLoadMessage(myPhotosResult.reason));
+      }
+
+      if (peopleResult.status === "fulfilled") {
+        setTopUploaders(getTopUploaders(peopleResult.value.people));
+      } else {
+        setTopUploaders([]);
+      }
+
+      if (galleryMessages.length) {
+        setGalleryError(galleryMessages[0]);
       }
     } catch (requestError) {
       setError(getEventLoadMessage(requestError, id));
@@ -351,35 +341,6 @@ export function EventGalleryPage() {
     }
   }
 
-  async function handleRequestAccess() {
-    if (!event) {
-      return;
-    }
-    setAccessRequesting(true);
-    setAccessMessage(null);
-    setError(null);
-    try {
-      const response = await apiFetch<GalleryAccessRequestResponse>(
-        `/api/events/${event.id}/access-requests`,
-        { method: "POST" },
-      );
-      setEvent({ ...event, galleryAccessStatus: response.status });
-      setAccessMessage(
-        response.status === "approved" || response.status === "owner"
-          ? "Gallery access is approved."
-          : "Access request sent.",
-      );
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "PictureMe could not request access.",
-      );
-    } finally {
-      setAccessRequesting(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="page-shell flex min-h-[60vh] items-center justify-center">
@@ -509,32 +470,7 @@ export function EventGalleryPage() {
           </div>
         </div>
 
-        {event.privateGallery && !canViewGallery(event) ? (
-          <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5">
-            <p className="font-medium text-ink">Private gallery</p>
-            <p className="mt-2 text-sm leading-6 text-slate">
-              {event.galleryAccessStatus === "pending"
-                ? "Your access request is waiting for an event owner or admin."
-                : "Request access from an event owner or admin to view photos."}
-            </p>
-            <button
-              type="button"
-              className="primary-button mt-4"
-              disabled={accessRequesting || event.galleryAccessStatus === "pending"}
-              onClick={() => void handleRequestAccess()}
-            >
-              {event.galleryAccessStatus === "pending"
-                ? "Request pending"
-                : accessRequesting
-                  ? "Requesting..."
-                  : "Request access"}
-            </button>
-            {accessMessage ? (
-              <p className="mt-3 text-sm text-seafoam-700">{accessMessage}</p>
-            ) : null}
-          </div>
-        ) : (
-          <div className="space-y-5">
+        <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="surface-card flex w-fit gap-2 p-2 shadow-none">
                 <button
@@ -613,7 +549,6 @@ export function EventGalleryPage() {
               />
             )}
           </div>
-        )}
       </section>
     </div>
   );
@@ -679,16 +614,6 @@ function TopUploadersPanel({ uploaders }: { uploaders: EventPerson[] }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function canViewGallery(event: EventDetail) {
-  return (
-    !event.privateGallery ||
-    event.galleryAccessStatus === "owner" ||
-    event.galleryAccessStatus === "approved" ||
-    event.role === "creator" ||
-    event.role === "admin"
   );
 }
 

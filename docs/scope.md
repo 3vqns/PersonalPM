@@ -4,7 +4,7 @@
 
 Build a product that allows users to register their face to their account once, create and host events, assign event-specific upload permissions, join events through signed-in QR check-in or organizer assignment, and automatically receive access to the professional photos they appear in whenever event photos are uploaded.
 
-Public sharing is split from registration. Personal Gallery Share exposes only the sharer's matched photos, Full Gallery Share exposes the event photo gallery, and Join Event is the only QR/link flow that changes membership or creates private-gallery access requests.
+Public sharing is split from registration. Personal Gallery Share exposes only the sharer's matched photos, Full Gallery Share exposes the event photo gallery, and Join Event is the only QR/link flow that changes event membership.
 
 ## Core Moving Parts
 
@@ -24,8 +24,8 @@ Public sharing is split from registration. Personal Gallery Share exposes only t
 - Any user can create an event and become that event's Event Organizer.
 - The Event Organizer can manage the event, manage the gallery, and control contributor permissions for that event.
 - The Event Organizer controls whether anonymous users can upload photos for that event.
-- The Event Organizer controls whether the full gallery is private and can approve, invite, or remove signed-up users from private gallery access.
-- Event admins can edit event settings and manage private gallery access requests, but only the Event Organizer can delete the event or promote and demote admins.
+- Private gallery mode is disabled for now; all existing events are treated as public member galleries.
+- Event admins can edit event settings, but only the Event Organizer can delete the event or promote and demote admins.
 - The Event Organizer can invite other users as contributors and remove that privilege later.
 - Contributors can upload photos and manage only the photos they uploaded.
 - Non-privileged users can view allowed gallery photos but do not have organizer or contributor permissions.
@@ -45,14 +45,12 @@ Public sharing is split from registration. Personal Gallery Share exposes only t
 
 - Each event exposes a QR code.
 - Scanning the QR code registers the user as an attendee for that event.
-- In private-gallery mode, scanning the QR code creates a pending gallery access request until an owner or admin approves it.
 - Organizers can also manually add users to an event attendee list.
 
 ### Personalized Galleries And Notifications
 
 - Matching photos are assembled into a personal user gallery for that event.
 - Users can also browse the full event gallery when permitted.
-- Users can request access to private event galleries, and pending users cannot view gallery photos until approved.
 - Users receive SMS notifications when photos are uploaded to events they attended.
 
 ### Event History

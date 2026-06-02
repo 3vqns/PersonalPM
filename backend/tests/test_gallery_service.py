@@ -5,10 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
-import pytest
-
 from backend.dependencies.auth import AuthenticatedUser
-from backend.errors import AppError
 from backend.schemas.account import PublicUserRecord
 from backend.schemas.event import EventRecord, GalleryTokenRecord, PhotoRecord, UserPhotoMatchRecord
 from backend.services import gallery_service
@@ -79,7 +76,7 @@ def test_shared_gallery_uses_only_token_owner_matches(monkeypatch) -> None:
     assert response.download_all_url == "https://example.com/photo.jpg"
 
 
-def test_shared_gallery_rejects_private_gallery_tokens(monkeypatch) -> None:
+def test_shared_gallery_ignores_stale_private_gallery_flag(monkeypatch) -> None:
     event = EventRecord(
         id="event-1",
         creator_id="creator-1",
@@ -101,12 +98,24 @@ def test_shared_gallery_rejects_private_gallery_tokens(monkeypatch) -> None:
         lambda _token: GalleryTokenRecord(token="public-token", user_id="user-1", event_id=event.id),
     )
     monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(
+        gallery_service,
+        "_get_public_user_by_id",
+        lambda _user_id: PublicUserRecord(
+            id="user-1",
+            email="user@example.com",
+            name="User One",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(gallery_service, "_list_user_matched_photos", lambda **_kwargs: [])
 
-    with pytest.raises(AppError) as exc_info:
-        gallery_service.get_shared_gallery("public-token")
+    response = gallery_service.get_shared_gallery("public-token")
 
-    assert exc_info.value.code == "GALLERY_ACCESS_REQUIRED"
-    assert exc_info.value.status == 403
+    assert response.shared_by.id == "user-1"
+    assert response.photos == []
 
 
 def test_my_photos_uses_first_matched_photo_for_download_url(monkeypatch) -> None:
