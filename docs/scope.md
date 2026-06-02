@@ -12,6 +12,7 @@ Build a product that allows users to register their face to their account once, 
 - Event Organizers can invite contributors who are also allowed to upload photos to that event.
 - Event Organizers can optionally allow anyone with the event link to upload photos without creating an account.
 - Anonymous uploaders must provide a display name before uploading so the upload job can still identify who submitted the batch.
+- Uploaded photos should carry uploader display metadata so viewers can see who submitted each picture when viewing it.
 - Contributors can manage the photos they personally uploaded.
 - The system stores and organizes event images for later processing and delivery.
 
@@ -20,6 +21,7 @@ Build a product that allows users to register their face to their account once, 
 - Any user can create an event and become that event's Event Organizer.
 - The Event Organizer can manage the event, manage the gallery, and control contributor permissions for that event.
 - The Event Organizer controls whether anonymous users can upload photos for that event.
+- The Event Organizer controls whether the full gallery is private and can approve, invite, or remove signed-up users from private gallery access.
 - The Event Organizer can invite other users as contributors and remove that privilege later.
 - Contributors can upload photos and manage only the photos they uploaded.
 - Non-privileged users can view allowed gallery photos but do not have organizer or contributor permissions.
@@ -45,6 +47,7 @@ Build a product that allows users to register their face to their account once, 
 
 - Matching photos are assembled into a personal user gallery for that event.
 - Users can also browse the full event gallery when permitted.
+- Users can request access to private event galleries, and pending users cannot view gallery photos until approved.
 - Users receive SMS notifications when photos are uploaded to events they attended.
 
 ### Event History
@@ -79,5 +82,7 @@ Build a product that allows users to register their face to their account once, 
 - An Event Organizer can opt into anonymous uploads for an event.
 - The system can identify likely matching photos for each registered user.
 - A user can view their personal event photos and the full event gallery.
+- An Event Organizer can restrict gallery viewing to approved users and manage that access list.
+- A viewer can see uploader attribution in the photo viewing experience.
 - A user receives text notifications when new event photos are uploaded.
 - A user can see a history of previous events.

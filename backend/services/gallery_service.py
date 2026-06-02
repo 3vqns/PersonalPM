@@ -31,7 +31,7 @@ from backend.services.account_service import get_public_user_record
 def get_event_photos(current_user: AuthenticatedUser, *, event_id: str) -> AllPhotosResponse:
     """Return the full gallery for an authorized event member."""
     event = _get_event_or_404(event_id)
-    _require_event_membership(current_user.user_id, event)
+    _require_gallery_access(current_user.user_id, event)
     photo_records = _list_event_photos(event.id)
     return AllPhotosResponse(photos=[_map_photo(photo) for photo in photo_records])
 
@@ -39,7 +39,7 @@ def get_event_photos(current_user: AuthenticatedUser, *, event_id: str) -> AllPh
 def get_my_photos(current_user: AuthenticatedUser, *, event_id: str) -> MyPhotosResponse:
     """Return only the current user's matched photos for an event."""
     event = _get_event_or_404(event_id)
-    _require_event_membership(current_user.user_id, event)
+    _require_gallery_access(current_user.user_id, event)
     public_user = get_public_user_record(current_user)
     matched_photos = _list_user_matched_photos(user_id=current_user.user_id, event_id=event.id)
     download_url = matched_photos[0][1].cloudinary_url if matched_photos else None
@@ -54,7 +54,7 @@ def get_my_photos(current_user: AuthenticatedUser, *, event_id: str) -> MyPhotos
 def create_or_reuse_gallery_token(current_user: AuthenticatedUser, *, event_id: str) -> ShareGalleryTokenResponse:
     """Create a deterministic share token scoped to one user/event pair."""
     event = _get_event_or_404(event_id)
-    _require_event_membership(current_user.user_id, event)
+    _require_gallery_access(current_user.user_id, event)
 
     token = _create_gallery_token(event_id=event_id, user_id=current_user.user_id)
     settings = getSettings()
@@ -65,6 +65,9 @@ def get_shared_gallery(token: str) -> GalleryResponse:
     """Return the token owner's matched-photo gallery only."""
     token_record = _get_gallery_token_or_404(token)
     event = _get_event_or_404(token_record.event_id)
+    if event.private_gallery:
+        raise AppError("This shared gallery is private", code="GALLERY_ACCESS_REQUIRED", status=403)
+
     owner = _get_public_user_by_id(token_record.user_id)
     matched_photos = _list_user_matched_photos(user_id=token_record.user_id, event_id=event.id)
     download_url = matched_photos[0][1].cloudinary_url if matched_photos else None
@@ -120,7 +123,7 @@ def _urlsafe_b64decode(value: str) -> bytes:
 def _get_event_or_404(event_id: str) -> EventRecord:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
+            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload,private_gallery"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -146,11 +149,41 @@ def _require_event_membership(user_id: str, event: EventRecord) -> None:
         raise AppError("You do not have access to this event", code="FORBIDDEN", status=403)
 
 
+def _require_gallery_access(user_id: str, event: EventRecord) -> None:
+    _require_event_membership(user_id, event)
+    if not event.private_gallery:
+        return
+    if event.creator_id == user_id:
+        return
+
+    try:
+        role_response = get_supabase_admin_client().table("event_members").select("role").eq(
+            "event_id", event.id
+        ).eq("user_id", user_id).maybe_single().execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not verify event access", code="EVENT_ACCESS_FAILED", status=500) from exc
+
+    if role_response.data and role_response.data.get("role") == "admin":
+        return
+
+    try:
+        access_response = get_supabase_admin_client().table("event_gallery_access").select("status").eq(
+            "event_id", event.id
+        ).eq("user_id", user_id).maybe_single().execute()
+    except Exception as exc:
+        if _is_missing_gallery_access_table(exc):
+            raise AppError("Request access before viewing this private gallery", code="GALLERY_ACCESS_REQUIRED", status=403) from exc
+        raise AppError("PictureMe could not verify gallery access", code="ACCESS_FETCH_FAILED", status=500) from exc
+
+    if not access_response.data or access_response.data.get("status") != "approved":
+        raise AppError("Request access before viewing this private gallery", code="GALLERY_ACCESS_REQUIRED", status=403)
+
+
 def _list_event_photos(event_id: str) -> list[PhotoRecord]:
     client = get_supabase_admin_client()
     try:
         response = client.table("photos").select(
-            "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
+            "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
     except Exception as exc:
         if not _is_missing_original_filename_column(exc):
@@ -158,7 +191,7 @@ def _list_event_photos(event_id: str) -> list[PhotoRecord]:
 
         try:
             response = client.table("photos").select(
-                "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+                "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,uploaded_at,face_count"
             ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
         except Exception as retry_exc:
             raise AppError("PictureMe could not load this gallery", code="GALLERY_FETCH_FAILED", status=500) from retry_exc
@@ -188,7 +221,7 @@ def _get_photos_by_ids(photo_ids: Iterable[str]) -> dict[str, PhotoRecord]:
     client = get_supabase_admin_client()
     try:
         response = client.table("photos").select(
-            "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
+            "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).in_("id", photo_id_list).execute()
     except Exception as exc:
         if not _is_missing_original_filename_column(exc):
@@ -196,7 +229,7 @@ def _get_photos_by_ids(photo_ids: Iterable[str]) -> dict[str, PhotoRecord]:
 
         try:
             response = client.table("photos").select(
-                "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+                "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,uploaded_at,face_count"
             ).in_("id", photo_id_list).execute()
         except Exception as retry_exc:
             raise AppError("PictureMe could not load gallery photo records", code="PHOTO_FETCH_FAILED", status=500) from retry_exc
@@ -228,6 +261,10 @@ def _normalize_photo(row: dict) -> PhotoRecord:
     face_count = row.get("face_count")
     if face_count is None:
         row = {**row, "face_count": 0}
+    if "uploaded_by" not in row:
+        row = {**row, "uploaded_by": None}
+    if "uploader_name" not in row:
+        row = {**row, "uploader_name": None}
     return PhotoRecord.model_validate(row)
 
 
@@ -237,6 +274,8 @@ def _map_photo(photo: PhotoRecord) -> PhotoResponse:
         cloudinaryUrl=photo.cloudinary_url,
         thumbnailUrl=photo.thumbnail_url,
         originalFilename=photo.original_filename,
+        uploaderName=photo.uploader_name,
+        uploaderIsAnonymous=photo.uploaded_by is None,
         uploadedAt=photo.uploaded_at,
         faceCount=photo.face_count,
     )
@@ -248,6 +287,8 @@ def _map_matched_photo(match: UserPhotoMatchRecord, photo: PhotoRecord) -> Match
         cloudinaryUrl=photo.cloudinary_url,
         thumbnailUrl=photo.thumbnail_url,
         originalFilename=photo.original_filename,
+        uploaderName=photo.uploader_name,
+        uploaderIsAnonymous=photo.uploaded_by is None,
         uploadedAt=photo.uploaded_at,
         faceCount=photo.face_count,
         matchedAt=match.matched_at,
@@ -259,4 +300,11 @@ def _is_missing_original_filename_column(exc: Exception) -> bool:
     message = str(exc).casefold()
     return "original_filename" in message and (
         "column" in message or "schema cache" in message or "pgrst" in message
+    )
+
+
+def _is_missing_gallery_access_table(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return "event_gallery_access" in message and (
+        "does not exist" in message or "schema cache" in message or "pgrst" in message
     )

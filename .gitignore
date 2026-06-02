@@ -218,6 +218,9 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# Supabase CLI local state
+supabase/.temp/
 backend/node_modules/
 backend/dist/
 backend/*.tsbuildinfo

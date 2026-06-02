@@ -6,6 +6,9 @@ import type {
   DashboardResponse,
   EventDetail,
   EventMember,
+  EventPeopleResponse,
+  GalleryAccessEntry,
+  GalleryAccessRequestResponse,
   GalleryResponse,
   JoinPreview,
   MyPhotosResponse,
@@ -51,6 +54,8 @@ const demoPhotos: Photo[] = [
     thumbnailUrl:
       "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=640&q=80",
     uploadedAt: "2026-05-10T18:00:00.000Z",
+    uploaderName: "Jordan Demo",
+    uploaderIsAnonymous: false,
     faceCount: 4,
   },
   {
@@ -60,6 +65,8 @@ const demoPhotos: Photo[] = [
     thumbnailUrl:
       "https://images.unsplash.com/photo-1519671482749-fd09be7ccebf?auto=format&fit=crop&w=640&q=80",
     uploadedAt: "2026-05-10T18:10:00.000Z",
+    uploaderName: "Avery Chen",
+    uploaderIsAnonymous: false,
     faceCount: 2,
   },
   {
@@ -69,6 +76,8 @@ const demoPhotos: Photo[] = [
     thumbnailUrl:
       "https://images.unsplash.com/photo-1527529482837-4698179dc6ce?auto=format&fit=crop&w=640&q=80",
     uploadedAt: "2026-05-10T18:20:00.000Z",
+    uploaderName: "Casey Guest",
+    uploaderIsAnonymous: true,
     faceCount: 6,
   },
 ];
@@ -80,6 +89,8 @@ const demoEvent: EventDetail = {
   date: "2026-05-10",
   expiresAt: "2026-06-09",
   status: "active",
+  privateGallery: false,
+  galleryAccessStatus: "owner",
   coverUrl:
     "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=1200&q=80",
   joinToken: "demo-token",
@@ -164,6 +175,7 @@ export async function getDemoApiResponse<T>(
           daysRemaining: 21,
           status: "active",
           role: "creator",
+          privateGallery: demoEvent.privateGallery,
         },
       ],
       joinedEvents: [
@@ -193,6 +205,7 @@ export async function getDemoApiResponse<T>(
           daysRemaining: 30,
           status: "active",
           role: "member",
+          privateGallery: false,
         },
       ],
     } satisfies DashboardResponse as T;
@@ -222,6 +235,10 @@ export async function getDemoApiResponse<T>(
           typeof options.body.description === "string"
             ? options.body.description
             : demoEvent.description,
+        privateGallery:
+          typeof options.body.privateGallery === "boolean"
+            ? options.body.privateGallery
+            : demoEvent.privateGallery,
       } as T;
     }
 
@@ -257,6 +274,8 @@ export async function getDemoApiResponse<T>(
       expiresAt: demoEvent.expiresAt,
       joinToken: demoEvent.joinToken,
       alreadyJoined: true,
+      privateGallery: demoEvent.privateGallery,
+      galleryAccessStatus: "owner",
     } satisfies JoinPreview as T;
   }
 
@@ -283,6 +302,101 @@ export async function getDemoApiResponse<T>(
         joinedAt: "2026-05-10T00:00:00.000Z",
       },
     ] satisfies EventMember[] as T;
+  }
+
+  if (/^\/api\/events\/[^/]+\/people$/.test(path)) {
+    return {
+      event: demoEvent,
+      people: [
+        {
+          id: demoUser.id,
+          name: demoUser.name,
+          email: demoUser.email,
+          role: "creator",
+          joinedAt: "2026-05-10T00:00:00.000Z",
+          kind: "member",
+          uploadCount: 1,
+          galleryAccessStatus: "owner",
+        },
+        {
+          id: "demo-admin",
+          name: "Avery Chen",
+          email: "avery@example.com",
+          role: "admin",
+          joinedAt: "2026-05-10T00:00:00.000Z",
+          kind: "member",
+          uploadCount: 1,
+          galleryAccessStatus: "approved",
+        },
+        {
+          id: "anonymous-1",
+          name: "Casey Guest",
+          kind: "anonymous",
+          uploadCount: 1,
+        },
+      ],
+    } satisfies EventPeopleResponse as T;
+  }
+
+  if (/^\/api\/events\/[^/]+\/access-requests$/.test(path)) {
+    return { status: "pending" } satisfies GalleryAccessRequestResponse as T;
+  }
+
+  if (/^\/api\/events\/[^/]+\/gallery-access$/.test(path)) {
+    if (method === "POST") {
+      return {
+        id: "access-demo-member",
+        user: {
+          id: "demo-member",
+          name: "Maya Patel",
+          email: "maya@example.com",
+        },
+        status: "approved",
+        requestedAt: "2026-05-10T00:00:00.000Z",
+        approvedAt: "2026-05-10T00:00:00.000Z",
+      } satisfies GalleryAccessEntry as T;
+    }
+
+    return [
+      {
+        id: "access-demo-admin",
+        user: {
+          id: "demo-admin",
+          name: "Avery Chen",
+          email: "avery@example.com",
+        },
+        status: "approved",
+        requestedAt: "2026-05-10T00:00:00.000Z",
+        approvedAt: "2026-05-10T00:00:00.000Z",
+      },
+      {
+        id: "access-demo-pending",
+        user: {
+          id: "demo-member",
+          name: "Maya Patel",
+          email: "maya@example.com",
+        },
+        status: "pending",
+        requestedAt: "2026-05-11T00:00:00.000Z",
+      },
+    ] satisfies GalleryAccessEntry[] as T;
+  }
+
+  if (/^\/api\/events\/[^/]+\/gallery-access\/[^/]+$/.test(path)) {
+    if (method === "DELETE") {
+      return { success: true } as T;
+    }
+    return {
+      id: "access-demo-member",
+      user: {
+        id: "demo-member",
+        name: "Maya Patel",
+        email: "maya@example.com",
+      },
+      status: "approved",
+      requestedAt: "2026-05-11T00:00:00.000Z",
+      approvedAt: "2026-05-11T00:00:00.000Z",
+    } satisfies GalleryAccessEntry as T;
   }
 
   if (/^\/api\/events\/[^/]+\/members\/[^/]+$/.test(path)) {

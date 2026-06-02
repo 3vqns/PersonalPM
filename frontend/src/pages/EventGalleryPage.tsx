@@ -5,6 +5,7 @@ import {
   Share2,
   Sparkles,
   Upload,
+  UserPlus,
   UserRoundSearch,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +28,7 @@ import type {
   MatchedPhoto,
   MyPhotosResponse,
   Photo,
+  GalleryAccessRequestResponse,
   ShareGalleryTokenResponse,
 } from "../types";
 
@@ -49,6 +51,8 @@ export function EventGalleryPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [galleryShareUrl, setGalleryShareUrl] = useState<string | null>(null);
   const [galleryShareError, setGalleryShareError] = useState<string | null>(null);
+  const [accessRequesting, setAccessRequesting] = useState(false);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
     const response = await apiFetch<EventDetail>(`/api/events/${id}`);
@@ -71,7 +75,21 @@ export function EventGalleryPage() {
     setError(null);
 
     try {
-      await Promise.all([loadEvent(), loadAllPhotos(), loadMyPhotos()]);
+      const eventResponse = await apiFetch<EventDetail>(`/api/events/${id}`);
+      setEvent(eventResponse);
+      if (canViewGallery(eventResponse)) {
+        const [allPhotosResponse, myPhotosResponse] = await Promise.all([
+          apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`),
+          apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`),
+        ]);
+        setAllPhotos(allPhotosResponse.photos);
+        setMyPhotos(myPhotosResponse.photos);
+        setHasFaceProfile(myPhotosResponse.hasFaceProfile);
+      } else {
+        setAllPhotos([]);
+        setMyPhotos([]);
+        setHasFaceProfile(true);
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -81,7 +99,7 @@ export function EventGalleryPage() {
     } finally {
       setLoading(false);
     }
-  }, [loadAllPhotos, loadEvent, loadMyPhotos]);
+  }, [id]);
 
   useEffect(() => {
     void loadAll();
@@ -232,6 +250,35 @@ export function EventGalleryPage() {
     }
   }
 
+  async function handleRequestAccess() {
+    if (!event) {
+      return;
+    }
+    setAccessRequesting(true);
+    setAccessMessage(null);
+    setError(null);
+    try {
+      const response = await apiFetch<GalleryAccessRequestResponse>(
+        `/api/events/${event.id}/access-requests`,
+        { method: "POST" },
+      );
+      setEvent({ ...event, galleryAccessStatus: response.status });
+      setAccessMessage(
+        response.status === "approved" || response.status === "owner"
+          ? "Gallery access is approved."
+          : "Access request sent.",
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "PictureMe could not request access.",
+      );
+    } finally {
+      setAccessRequesting(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="page-shell flex min-h-[60vh] items-center justify-center">
@@ -301,8 +348,17 @@ export function EventGalleryPage() {
             </p>
             <h1 className="text-4xl text-ink">{event.name}</h1>
             <p className="mt-2 text-sm text-slate">{formatDate(event.date)}</p>
+            {event.description ? (
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate">
+                {event.description}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
+            <Link className="secondary-button" to={`/event/${id}/people`}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              People
+            </Link>
             {event.role === "creator" ? (
               <Link className="secondary-button" to={`/event/${id}/settings`}>
                 <Settings className="mr-2 h-4 w-4" />
@@ -330,7 +386,32 @@ export function EventGalleryPage() {
           </div>
         </div>
 
-        <div className="space-y-5">
+        {event.privateGallery && !canViewGallery(event) ? (
+          <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-5">
+            <p className="font-medium text-ink">Private gallery</p>
+            <p className="mt-2 text-sm leading-6 text-slate">
+              {event.galleryAccessStatus === "pending"
+                ? "Your access request is waiting for the event owner."
+                : "Request access from the event owner to view photos."}
+            </p>
+            <button
+              type="button"
+              className="primary-button mt-4"
+              disabled={accessRequesting || event.galleryAccessStatus === "pending"}
+              onClick={() => void handleRequestAccess()}
+            >
+              {event.galleryAccessStatus === "pending"
+                ? "Request pending"
+                : accessRequesting
+                  ? "Requesting..."
+                  : "Request access"}
+            </button>
+            {accessMessage ? (
+              <p className="mt-3 text-sm text-seafoam-700">{accessMessage}</p>
+            ) : null}
+          </div>
+        ) : (
+          <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="surface-card flex w-fit gap-2 p-2 shadow-none">
                 <button
@@ -359,7 +440,7 @@ export function EventGalleryPage() {
                 </button>
               </div>
 
-            {activeTab === "my" ? (
+              {activeTab === "my" ? (
                 <div />
               ) : (
                 <p className="text-sm text-slate">
@@ -409,7 +490,18 @@ export function EventGalleryPage() {
               />
             )}
           </div>
+        )}
       </section>
     </div>
+  );
+}
+
+function canViewGallery(event: EventDetail) {
+  return (
+    !event.privateGallery ||
+    event.galleryAccessStatus === "owner" ||
+    event.galleryAccessStatus === "approved" ||
+    event.role === "creator" ||
+    event.role === "admin"
   );
 }
