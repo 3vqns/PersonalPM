@@ -31,7 +31,7 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
 - Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
 - Event gallery share links and QR codes do not use join tokens. Personal Gallery Share uses `/gallery/{token}` and Full Gallery Share uses `/event-gallery/{token}` so signed-in and signed-out visitors can view the shared photos without changing event membership.
-- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration: public events approve the joining user immediately, while private events create a pending gallery-access request for owner or admin review.
+- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration: public events add the user as an event member, while private events create a pending gallery-access request for owner or admin review.
 - Gallery load failures show safe troubleshooting copy to normal users and a request reference when one exists. Local development builds can show endpoint/code/details behind the troubleshooting panel for debugging.
 
 ## Remaining Backend Integration Cleanup

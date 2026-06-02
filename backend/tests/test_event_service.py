@@ -141,18 +141,7 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
             "event_id,user_id",
         )
     ]
-    assert client.upserted_gallery_access == [
-        (
-            {
-                "event_id": event.id,
-                "user_id": current_user.user_id,
-                "status": "approved",
-                "invited_by": event.creator_id,
-                "approved_at": client.upserted_gallery_access[0][0]["approved_at"],
-            },
-            "event_id,user_id",
-        )
-    ]
+    assert client.upserted_gallery_access == []
     assert background_tasks.tasks
     queued_func, _args, kwargs = background_tasks.tasks[0]
     assert queued_func is event_service.trigger_user_event_match
@@ -218,7 +207,7 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
     ]
 
 
-def test_join_public_event_repairs_access_for_existing_member(monkeypatch) -> None:
+def test_join_public_event_uses_membership_only_for_existing_member(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",
         email="user@example.com",
@@ -267,18 +256,74 @@ def test_join_public_event_repairs_access_for_existing_member(monkeypatch) -> No
     assert response.already_joined is True
     assert response.event_id == event.id
     assert client.upserted_memberships == []
-    assert client.upserted_gallery_access == [
-        (
-            {
-                "event_id": event.id,
-                "user_id": current_user.user_id,
-                "status": "approved",
-                "invited_by": event.creator_id,
-                "approved_at": client.upserted_gallery_access[0][0]["approved_at"],
-            },
-            "event_id,user_id",
-        )
-    ]
+    assert client.upserted_gallery_access == []
+
+
+def test_public_gallery_access_status_ignores_access_rows(monkeypatch) -> None:
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    membership = EventMemberRecord(
+        id="member-1",
+        event_id=event.id,
+        user_id="user-1",
+        role="member",
+        joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+
+    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, user_id: membership if user_id == "user-1" else None)
+    monkeypatch.setattr(
+        event_service,
+        "_get_gallery_access_status",
+        lambda _event_id, _user_id: (_ for _ in ()).throw(AssertionError("public events must not query gallery access")),
+    )
+
+    assert event_service._get_public_gallery_access_status(event, "user-1") == "approved"
+    assert event_service._get_public_gallery_access_status(event, "user-2") == "none"
+
+
+def test_request_access_for_public_event_only_ensures_membership(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    ensured_members: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
+    monkeypatch.setattr(
+        event_service,
+        "_upsert_gallery_access",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("public events must not write gallery access")),
+    )
+
+    response = event_service.request_gallery_access(current_user, event_id=event.id)
+
+    assert response.status == "approved"
+    assert ensured_members == [("event-1", "user-1")]
 
 
 def test_remove_event_member_deletes_membership_access_and_matches(monkeypatch) -> None:
