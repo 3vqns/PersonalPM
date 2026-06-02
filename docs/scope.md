@@ -9,6 +9,7 @@ Build a product that allows users to register their face to their account once, 
 ### Photo Ingestion
 
 - Event Organizers can upload event photo sets to a specific event.
+- Event Organizers can provide basic event details, including a description and location, with unknown locations shown as `TBD`.
 - Event Organizers can invite contributors who are also allowed to upload photos to that event.
 - Event Organizers can optionally allow anyone with the event link to upload photos without creating an account.
 - Anonymous uploaders must provide a display name before uploading so the upload job can still identify who submitted the batch.

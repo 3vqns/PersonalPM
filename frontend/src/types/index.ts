@@ -22,7 +22,9 @@ export interface SessionState {
 export interface EventSummary {
   id: string;
   name: string;
+  description?: string;
   date: string;
+  location: string;
   tags: string[];
   allowAnyoneUpload: boolean;
   privateGallery?: boolean;
@@ -45,6 +47,7 @@ export interface EventDetail {
   name: string;
   description?: string;
   date: string;
+  location: string;
   tags: string[];
   allowAnyoneUpload: boolean;
   privateGallery: boolean;
@@ -68,6 +71,7 @@ export interface JoinPreview {
   id: string;
   name: string;
   date: string;
+  location?: string;
   hostName: string;
   coverUrl?: string;
   photoCount: number;

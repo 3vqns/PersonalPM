@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Images,
+  MapPin,
   Settings,
   Share2,
   Sparkles,
@@ -353,6 +354,10 @@ export function EventGalleryPage() {
                 {event.description}
               </p>
             ) : null}
+            <p className="mt-3 flex items-center gap-2 text-sm text-slate">
+              <MapPin className="h-4 w-4 text-seafoam-500" />
+              {event.location || "TBD"}
+            </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link className="secondary-button" to={`/event/${id}/people`}>

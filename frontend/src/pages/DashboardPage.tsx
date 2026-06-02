@@ -375,6 +375,7 @@ function CreateEventModal({
   const [form, setForm] = useState({
     name: "",
     date: "",
+    location: "TBD",
     description: "",
     cover: null as File | null,
     tags: [] as string[],
@@ -412,6 +413,7 @@ function CreateEventModal({
     const formData = new FormData();
     formData.append("name", form.name);
     formData.append("date", form.date);
+    formData.append("location", form.location.trim() || "TBD");
     if (form.description) {
       formData.append("description", form.description);
     }
@@ -466,6 +468,20 @@ function CreateEventModal({
                 setForm((value) => ({ ...value, date: event.target.value }))
               }
               required
+            />
+          </div>
+        </label>
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-ink">Location</span>
+          <div className="field-shell">
+            <input
+              className="field-input"
+              value={form.location}
+              onChange={(event) =>
+                setForm((value) => ({ ...value, location: event.target.value }))
+              }
+              placeholder="TBD"
+              maxLength={200}
             />
           </div>
         </label>

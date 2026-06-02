@@ -26,6 +26,7 @@ export function EventSettingsPage() {
   const [form, setForm] = useState({
     name: "",
     date: "",
+    location: "TBD",
     description: "",
     allowAnyoneUpload: false,
     privateGallery: false,
@@ -64,6 +65,7 @@ export function EventSettingsPage() {
         setForm({
           name: eventResponse.name,
           date: eventResponse.date,
+          location: eventResponse.location ?? "TBD",
           description: eventResponse.description ?? "",
           allowAnyoneUpload: eventResponse.allowAnyoneUpload ?? false,
           privateGallery: eventResponse.privateGallery ?? false,
@@ -116,6 +118,7 @@ export function EventSettingsPage() {
         body: {
           name: form.name,
           date: form.date,
+          location: form.location.trim() || "TBD",
           description: form.description,
           allow_anyone_upload: form.allowAnyoneUpload,
           privateGallery: form.privateGallery,
@@ -287,6 +290,20 @@ export function EventSettingsPage() {
                   setForm((value) => ({ ...value, date: inputEvent.target.value }))
                 }
                 required
+              />
+            </div>
+          </label>
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-ink">Location</span>
+            <div className="field-shell">
+              <input
+                className="field-input"
+                value={form.location}
+                onChange={(inputEvent) =>
+                  setForm((value) => ({ ...value, location: inputEvent.target.value }))
+                }
+                placeholder="TBD"
+                maxLength={200}
               />
             </div>
           </label>

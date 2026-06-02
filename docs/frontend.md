@@ -16,8 +16,9 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 ## Current Gallery And Upload Behavior
 
 - [frontend/src/pages/EventGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventGalleryPage.tsx): Shows event metadata, including the event description, and uses one header Share button that opens a modal for personal gallery sharing or full gallery sharing. The old inline created-event share panel is intentionally not rendered on the gallery route.
+- [frontend/src/components/EventCard.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/EventCard.tsx): Shows event details and the event location on dashboard cards instead of placeholder venue copy.
 - [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Lists signed-in event members, anonymous uploaders, and owner-managed private-gallery access rows.
-- [frontend/src/pages/EventSettingsPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventSettingsPage.tsx): Lets event creators toggle anonymous uploads and private gallery access.
+- [frontend/src/pages/EventSettingsPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventSettingsPage.tsx): Lets event creators update description, location, anonymous uploads, and private gallery access.
 - [frontend/src/components/PhotoLightbox.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/PhotoLightbox.tsx): Shows the display name of the person who uploaded a photo next to the lightbox Share button when uploader metadata exists.
 - [frontend/src/components/UploadModal.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/UploadModal.tsx): Shows the 100-photo batch cap and blocks over-limit selections before any upload request starts.
 
