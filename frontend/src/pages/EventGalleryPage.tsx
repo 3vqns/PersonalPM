@@ -57,7 +57,7 @@ export function EventGalleryPage() {
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
 
   const loadEvent = useCallback(async () => {
-    const response = await apiFetch<EventDetail>(`/api/events/${id}`);
+    const response = await loadEventWithAccessRepair(id);
     setEvent(response);
   }, [id]);
 
@@ -88,7 +88,7 @@ export function EventGalleryPage() {
     setGalleryError(null);
 
     try {
-      const eventResponse = await apiFetch<EventDetail>(`/api/events/${id}`);
+      const eventResponse = await loadEventWithAccessRepair(id);
       setEvent(eventResponse);
       if (canViewGallery(eventResponse)) {
         const [allPhotosResult, myPhotosResult] = await Promise.allSettled([
@@ -552,6 +552,27 @@ function canViewGallery(event: EventDetail) {
     event.role === "creator" ||
     event.role === "admin"
   );
+}
+
+async function loadEventWithAccessRepair(eventId: string) {
+  try {
+    return await apiFetch<EventDetail>(`/api/events/${eventId}`);
+  } catch (requestError) {
+    if (!isRecoverableEventAccessError(requestError)) {
+      throw requestError;
+    }
+
+    await apiFetch(`/api/events/${eventId}/join`, { method: "POST" });
+    return apiFetch<EventDetail>(`/api/events/${eventId}`);
+  }
+}
+
+function isRecoverableEventAccessError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return /do not have access|forbidden|event access/i.test(error.message);
 }
 
 function getGalleryLoadMessage(error: unknown) {

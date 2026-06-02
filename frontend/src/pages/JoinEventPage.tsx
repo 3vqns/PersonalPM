@@ -63,7 +63,7 @@ export function JoinEventPage() {
             auth: false,
           });
           setPreview(response.event);
-          setPublicGallery(response);
+          setPublicGallery(response.event.privateGallery ? null : response);
         }
         setError(null);
       } catch (requestError) {

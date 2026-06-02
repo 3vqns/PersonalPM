@@ -12,7 +12,7 @@ from starlette.datastructures import Headers
 
 from backend.dependencies.auth import AuthenticatedUser
 from backend.schemas.account import PublicUserRecord
-from backend.schemas.event import EventRecord, PhotoRecord
+from backend.schemas.event import EventMemberRecord, EventRecord, PhotoRecord
 from backend.services import event_service
 
 
@@ -401,6 +401,120 @@ def test_get_membership_returns_none_when_no_membership_row(monkeypatch) -> None
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _NoMembershipClient())
 
     assert event_service._get_membership("event-1", "user-1") is None
+
+
+def test_list_event_members_redacts_other_member_emails(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    joined_at = datetime(2026, 4, 18, tzinfo=timezone.utc)
+    rows = [
+        EventMemberRecord(id="member-1", event_id=event.id, user_id="user-1", role="member", joined_at=joined_at),
+        EventMemberRecord(id="member-2", event_id=event.id, user_id="user-2", role="member", joined_at=joined_at),
+    ]
+    users = {
+        "user-1": PublicUserRecord(
+            id="user-1",
+            email="user@example.com",
+            name="User One",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+        "user-2": PublicUserRecord(
+            id="user-2",
+            email="other@example.com",
+            name="User Two",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    }
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_require_event_role", lambda _user_id, _event: "member")
+    monkeypatch.setattr(event_service, "_fetch_event_member_rows", lambda _event_id: rows)
+    monkeypatch.setattr(event_service, "_get_public_user_by_id", lambda user_id: users[user_id])
+
+    response = event_service.list_event_members(current_user, event_id=event.id)
+
+    emails_by_user_id = {member.user_id: member.email for member in response}
+    assert emails_by_user_id == {
+        "user-1": "user@example.com",
+        "user-2": "",
+    }
+
+
+def test_list_event_members_shows_all_emails_to_admins(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="admin-1",
+        email="admin@example.com",
+        access_token="token",
+        raw_user={"id": "admin-1", "email": "admin@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    joined_at = datetime(2026, 4, 18, tzinfo=timezone.utc)
+    rows = [
+        EventMemberRecord(id="member-1", event_id=event.id, user_id="admin-1", role="admin", joined_at=joined_at),
+        EventMemberRecord(id="member-2", event_id=event.id, user_id="user-2", role="member", joined_at=joined_at),
+    ]
+    users = {
+        "admin-1": PublicUserRecord(
+            id="admin-1",
+            email="admin@example.com",
+            name="Admin One",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+        "user-2": PublicUserRecord(
+            id="user-2",
+            email="other@example.com",
+            name="User Two",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    }
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_require_event_role", lambda _user_id, _event: "admin")
+    monkeypatch.setattr(event_service, "_fetch_event_member_rows", lambda _event_id: rows)
+    monkeypatch.setattr(event_service, "_get_public_user_by_id", lambda user_id: users[user_id])
+
+    response = event_service.list_event_members(current_user, event_id=event.id)
+
+    emails_by_user_id = {member.user_id: member.email for member in response}
+    assert emails_by_user_id == {
+        "admin-1": "admin@example.com",
+        "user-2": "other@example.com",
+    }
 
 
 def test_get_public_event_gallery_returns_join_preview_and_photos(monkeypatch) -> None:

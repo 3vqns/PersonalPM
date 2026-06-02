@@ -409,7 +409,7 @@ function PersonRow({
         <div>
           <p className="font-medium text-ink">{person.name}</p>
           <p className="text-sm text-slate">
-            {person.email ?? "Anonymous uploader"}
+            {getPersonSubtext(person)}
           </p>
         </div>
       </div>
@@ -437,4 +437,12 @@ function PersonRow({
       </div>
     </div>
   );
+}
+
+function getPersonSubtext(person: EventPerson) {
+  if (person.kind === "anonymous") {
+    return "Anonymous uploader";
+  }
+
+  return person.email || "Email hidden";
 }
