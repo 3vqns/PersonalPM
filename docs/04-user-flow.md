@@ -84,6 +84,7 @@ pictureme.app/
 ├── /join/[token]         → Join event page with inline auth if needed
 ├── /event/[id]           → Event gallery with My Photos + All Photos tabs
 ├── /event/[id]/settings  → Event settings for creator
-├── /gallery/[token]      → Public shareable My Photos gallery
+├── /gallery/[token]      → Public read-only My Photos share
+├── /event-gallery/[token] → Public read-only full gallery share
 └── /account/settings     → Profile + face profile management
 ```

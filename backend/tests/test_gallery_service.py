@@ -131,7 +131,7 @@ def test_my_photos_uses_first_matched_photo_for_download_url(monkeypatch) -> Non
     )
 
     monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
-    monkeypatch.setattr(gallery_service, "_require_event_membership", lambda _user_id, _event: None)
+    monkeypatch.setattr(gallery_service, "_require_gallery_access", lambda _user_id, _event: None)
     monkeypatch.setattr(
         gallery_service,
         "get_public_user_record",
@@ -198,7 +198,7 @@ def test_gallery_token_creation_allows_existing_expired_status_after_expiry_remo
     )
 
     monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: expired_event)
-    monkeypatch.setattr(gallery_service, "_require_event_membership", lambda _user_id, _event: None)
+    monkeypatch.setattr(gallery_service, "_require_gallery_access", lambda _user_id, _event: None)
     monkeypatch.setattr(gallery_service, "_create_gallery_token", lambda **_kwargs: "token-1")
     monkeypatch.setattr(
         gallery_service,
@@ -242,6 +242,107 @@ def test_gallery_token_is_deterministic_and_decodes_without_db(monkeypatch) -> N
     assert response_a.token == response_b.token
     assert decoded.event_id == event.id
     assert decoded.user_id == current_user.user_id
+
+
+def test_event_gallery_token_is_deterministic_and_decodes_without_db(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Expo",
+        description=None,
+        date=date(2026, 4, 18),
+        expires_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+
+    monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(gallery_service, "_require_gallery_access", lambda _user_id, _event: None)
+    monkeypatch.setattr(
+        gallery_service,
+        "getSettings",
+        lambda: SimpleNamespace(frontend_origin="http://localhost:5173", internal_api_secret_value="secret"),
+    )
+
+    response_a = gallery_service.create_or_reuse_event_gallery_token(current_user, event_id=event.id)
+    response_b = gallery_service.create_or_reuse_event_gallery_token(current_user, event_id=event.id)
+    decoded_event_id = gallery_service._get_event_gallery_token_event_id_or_404(response_a.token)
+
+    assert response_a.token == response_b.token
+    assert response_a.url == f"http://localhost:5173/event-gallery/{response_a.token}"
+    assert decoded_event_id == event.id
+
+
+def test_shared_event_gallery_returns_full_event_photos(monkeypatch) -> None:
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Expo",
+        description=None,
+        date=date(2026, 4, 18),
+        expires_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
+        gallery_service,
+        "getSettings",
+        lambda: SimpleNamespace(frontend_origin="http://localhost:5173", internal_api_secret_value="secret"),
+    )
+    token = gallery_service._create_event_gallery_token(event_id=event.id)
+    monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(
+        gallery_service,
+        "_get_public_user_by_id",
+        lambda _user_id: PublicUserRecord(
+            id="creator-1",
+            email="creator@example.com",
+            name="Creator One",
+            avatar_url="https://example.com/avatar.jpg",
+            face_indexed_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        gallery_service,
+        "_list_event_photos",
+        lambda event_id: [
+            PhotoRecord(
+                id="photo-1",
+                event_id=event_id,
+                cloudinary_url="https://example.com/photo-1.jpg",
+                thumbnail_url="https://example.com/photo-1-thumb.jpg",
+                uploaded_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+                face_count=3,
+            ),
+            PhotoRecord(
+                id="photo-2",
+                event_id=event_id,
+                cloudinary_url="https://example.com/photo-2.jpg",
+                thumbnail_url="https://example.com/photo-2-thumb.jpg",
+                uploaded_at=datetime(2026, 4, 19, tzinfo=timezone.utc),
+                face_count=1,
+            ),
+        ],
+    )
+
+    response = gallery_service.get_shared_event_gallery(token)
+
+    assert response.shared_by.id == "creator-1"
+    assert [photo.id for photo in response.photos] == ["photo-1", "photo-2"]
+    assert response.download_all_url is None
 
 
 def test_list_event_photos_falls_back_when_original_filename_column_is_missing(monkeypatch) -> None:

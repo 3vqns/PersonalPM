@@ -11,9 +11,11 @@ from backend.schemas.event import (
     ShareGalleryTokenResponse,
 )
 from backend.services.gallery_service import (
+    create_or_reuse_event_gallery_token,
     create_or_reuse_gallery_token,
     get_event_photos,
     get_my_photos,
+    get_shared_event_gallery,
     get_shared_gallery,
 )
 
@@ -47,9 +49,26 @@ async def post_gallery_token(
     return create_or_reuse_gallery_token(current_user, event_id=payload.event_id)
 
 
+@router.post("/api/event-gallery-tokens", response_model=ShareGalleryTokenResponse)
+async def post_event_gallery_token(
+    payload: GalleryTokenCreateRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> ShareGalleryTokenResponse:
+    """Create or reuse a public token scoped to one full event gallery."""
+    return create_or_reuse_event_gallery_token(current_user, event_id=payload.event_id)
+
+
 @router.get("/api/gallery/{token}", response_model=GalleryResponse)
 async def get_public_gallery(
     token: str,
 ) -> GalleryResponse:
     """Return the token owner's matched-photo gallery only."""
     return get_shared_gallery(token)
+
+
+@router.get("/api/event-gallery/{token}", response_model=GalleryResponse)
+async def get_public_event_gallery(
+    token: str,
+) -> GalleryResponse:
+    """Return a tokenized full event gallery without creating event membership."""
+    return get_shared_event_gallery(token)

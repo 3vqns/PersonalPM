@@ -396,7 +396,16 @@ export function EventSettingsPage() {
         </form>
       </section>
 
-      <ShareEventPanel eventName={event.name} joinToken={event.joinToken} />
+      <ShareEventPanel
+        eventName={event.name}
+        joinToken={event.joinToken}
+        eyebrow="Join event"
+        title="Register guests"
+        description="Use this signed-in join link or QR code to add guests to public events or collect access requests for private galleries."
+        linkLabel="Join link"
+        copyLabel="Copy join link"
+        downloadLabel="Download join QR"
+      />
 
       {event.role === "creator" ? (
         <section className="surface-card border border-red-100 p-6">

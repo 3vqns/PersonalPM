@@ -347,7 +347,7 @@ class GalleryResponse(BaseModel):
 
     event: SharedGalleryEventResponse
     shared_by: SharedGalleryOwnerResponse = Field(alias="sharedBy")
-    photos: list[MatchedPhotoResponse]
+    photos: list[MatchedPhotoResponse | PhotoResponse]
     download_all_url: str | None = Field(default=None, alias="downloadAllUrl")
 
     model_config = ConfigDict(populate_by_name=True)

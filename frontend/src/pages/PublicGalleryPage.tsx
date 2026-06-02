@@ -9,7 +9,7 @@ import { apiFetch } from "../lib/api";
 import { formatDate } from "../lib/date";
 import type { GalleryResponse } from "../types";
 
-export function PublicGalleryPage() {
+export function PublicGalleryPage({ mode = "personal" }: { mode?: "personal" | "event" }) {
   const { token = "" } = useParams();
   const [gallery, setGallery] = useState<GalleryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,8 @@ export function PublicGalleryPage() {
     async function loadGallery() {
       setLoading(true);
       try {
-        const response = await apiFetch<GalleryResponse>(`/api/gallery/${token}`, {
+        const path = mode === "event" ? `/api/event-gallery/${token}` : `/api/gallery/${token}`;
+        const response = await apiFetch<GalleryResponse>(path, {
           auth: false,
         });
         setGallery(response);
@@ -36,7 +37,7 @@ export function PublicGalleryPage() {
     }
 
     void loadGallery();
-  }, [token]);
+  }, [mode, token]);
 
   if (loading) {
     return (
@@ -77,7 +78,8 @@ export function PublicGalleryPage() {
           </p>
           <h1 className="text-4xl text-ink">{gallery.event.name}</h1>
           <p className="text-sm text-slate">
-            {formatDate(gallery.event.date)} • Shared by {gallery.sharedBy.name}
+            {formatDate(gallery.event.date)} •{" "}
+            {mode === "event" ? "Full gallery share" : `Shared by ${gallery.sharedBy.name}`}
           </p>
         </div>
 
@@ -90,7 +92,11 @@ export function PublicGalleryPage() {
           <EmptyState
             icon={<Images className="h-7 w-7" />}
             title="No shared photos yet"
-            description="This public gallery link is active, but there are no matched photos available right now."
+            description={
+              mode === "event"
+                ? "This public gallery link is active, but there are no event photos available right now."
+                : "This public gallery link is active, but there are no matched photos available right now."
+            }
           />
         )}
       </section>

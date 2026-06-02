@@ -64,7 +64,7 @@ const mockedSignIn = vi.mocked(supabase.auth.signInWithPassword);
 const mockedGoogleSignIn = vi.mocked(signInWithGoogleOAuth);
 
 describe("JoinEventPage", () => {
-  it("shows a public event gallery to anonymous visitors", async () => {
+  it("shows the join auth flow to anonymous public invite visitors", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: null,
@@ -130,11 +130,12 @@ describe("JoinEventPage", () => {
     );
 
     expect(await screen.findByText("Demo Event")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /join with google/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("Or with email")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
+    expect(screen.getByText("Or with email")).toBeInTheDocument();
+    expect(mockedApiFetch).not.toHaveBeenCalledWith("/api/events/join/demo-token/gallery", expect.anything());
   });
 
-  it("shows the public gallery to signed-in users who are not registered for the event", async () => {
+  it("registers signed-in users from public invite links before opening the event", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -202,23 +203,20 @@ describe("JoinEventPage", () => {
       <MemoryRouter initialEntries={["/join/demo-token"]}>
         <Routes>
           <Route path="/join/:token" element={<JoinEventPage />} />
+          <Route path="/event/:eventId" element={<p>Joined public gallery</p>} />
         </Routes>
       </MemoryRouter>,
     );
-
-    expect(await screen.findByText("Demo Event")).toBeInTheDocument();
-    expect(screen.getByAltText("Event photo thumbnail")).toBeInTheDocument();
-    expect(screen.queryByText(/sign in to see photos/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
         method: "POST",
       });
     });
-    expect(await screen.findByText("You are registered for this event.")).toBeInTheDocument();
+    expect(await screen.findByText("Joined public gallery")).toBeInTheDocument();
   });
 
-  it("shows the empty public gallery state to anonymous visitors", async () => {
+  it("does not load public gallery photos from join links for anonymous visitors", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: null,
@@ -276,8 +274,8 @@ describe("JoinEventPage", () => {
     );
 
     expect(await screen.findByText("Demo Event")).toBeInTheDocument();
-    expect(screen.getByText("No photos uploaded yet")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /log in/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
+    expect(screen.queryByText("No photos uploaded yet")).not.toBeInTheDocument();
     expect(mockedSignIn).not.toHaveBeenCalled();
   });
 
@@ -379,7 +377,7 @@ describe("JoinEventPage", () => {
     expect(await screen.findByText("Joined private gallery")).toBeInTheDocument();
   });
 
-  it("does not start Google auth while the public gallery is directly available", async () => {
+  it("shows the public join auth flow without starting Google automatically", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: null,
@@ -433,7 +431,7 @@ describe("JoinEventPage", () => {
     );
 
     expect(await screen.findByText("Demo Event")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /join with google/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
     expect(mockedGoogleSignIn).not.toHaveBeenCalled();
   });
 

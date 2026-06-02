@@ -6,18 +6,20 @@ type ShareOption = "my" | "full";
 
 interface ShareModalProps {
   eventName: string;
-  joinToken: string;
   galleryShareUrl: string | null;
   galleryShareError: string | null;
+  eventGalleryShareUrl: string | null;
+  eventGalleryShareError: string | null;
   hasMyPhotos: boolean;
   onClose: () => void;
 }
 
 export function ShareModal({
   eventName,
-  joinToken,
   galleryShareUrl,
   galleryShareError,
+  eventGalleryShareUrl,
+  eventGalleryShareError,
   hasMyPhotos,
   onClose,
 }: ShareModalProps) {
@@ -169,13 +171,28 @@ export function ShareModal({
             <p className="text-sm leading-5 text-slate">
               Anyone with this link can view all event photos — no account needed.
             </p>
-            <ShareEventPanelVertical
-              eventName={eventName}
-              joinToken={joinToken}
-              linkLabel="Gallery link"
-              copyLabel="Copy gallery link"
-              downloadLabel="Download QR"
-            />
+            {eventGalleryShareUrl ? (
+              <ShareEventPanelVertical
+                eventName={eventName}
+                shareUrl={eventGalleryShareUrl}
+                linkLabel="Gallery link"
+                copyLabel="Copy gallery link"
+                downloadLabel="Download QR"
+              />
+            ) : eventGalleryShareError ? (
+              <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {eventGalleryShareError}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-4 rounded-[28px] bg-ivory/70 p-5">
+                <div className="h-[140px] w-[140px] animate-pulse rounded-2xl bg-ink/10" />
+                <div className="w-full space-y-2">
+                  <div className="h-2.5 w-3/4 rounded-full bg-ink/10" />
+                  <div className="h-2.5 w-1/2 rounded-full bg-ink/10" />
+                </div>
+                <p className="text-xs text-slate">Generating full gallery link…</p>
+              </div>
+            )}
           </div>
         )}
       </div>

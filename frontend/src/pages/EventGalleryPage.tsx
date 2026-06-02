@@ -66,6 +66,8 @@ export function EventGalleryPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [galleryShareUrl, setGalleryShareUrl] = useState<string | null>(null);
   const [galleryShareError, setGalleryShareError] = useState<string | null>(null);
+  const [eventGalleryShareUrl, setEventGalleryShareUrl] = useState<string | null>(null);
+  const [eventGalleryShareError, setEventGalleryShareError] = useState<string | null>(null);
   const [accessRequesting, setAccessRequesting] = useState(false);
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
 
@@ -288,6 +290,43 @@ export function EventGalleryPage() {
     };
   }, [galleryShareUrl, hasFaceProfile, id, myPhotos.length]);
 
+  useEffect(() => {
+    if (!id || !event || eventGalleryShareUrl) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadEventGalleryShareUrl() {
+      try {
+        if (!cancelled) {
+          setEventGalleryShareError(null);
+        }
+        const response = await apiFetch<ShareGalleryTokenResponse>("/api/event-gallery-tokens", {
+          method: "POST",
+          body: { eventId: id },
+        });
+        if (!cancelled) {
+          setEventGalleryShareUrl(response.url);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setEventGalleryShareError(
+            requestError instanceof Error
+              ? requestError.message
+              : "PictureMe could not create a full gallery share link.",
+          );
+        }
+      }
+    }
+
+    void loadEventGalleryShareUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [event, eventGalleryShareUrl, id]);
+
   async function handleDeletePhoto(photo: Photo) {
     const confirmed = window.confirm(
       `Delete ${photo.originalFilename ?? "this photo"} from the event gallery?`,
@@ -381,9 +420,10 @@ export function EventGalleryPage() {
       {shareOpen ? (
         <ShareModal
           eventName={event.name}
-          joinToken={event.joinToken}
           galleryShareUrl={galleryShareUrl}
           galleryShareError={galleryShareError}
+          eventGalleryShareUrl={eventGalleryShareUrl}
+          eventGalleryShareError={eventGalleryShareError}
           hasMyPhotos={myPhotos.length > 0}
           onClose={() => setShareOpen(false)}
         />
