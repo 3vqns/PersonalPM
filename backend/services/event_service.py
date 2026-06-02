@@ -47,7 +47,7 @@ from backend.services.matching_service import trigger_user_event_match
 logger = logging.getLogger("pictureme.events")
 _EVENT_SELECT_COLUMNS = (
     "id,creator_id,name,description,date,join_token,rekognition_collection_id,"
-    "cover_url,status,created_at,tags,allow_anyone_upload,private_gallery"
+    "cover_url,status,created_at,tags,allow_anyone_upload,private_gallery,location"
 )
 
 
@@ -77,6 +77,7 @@ async def create_event(
     name: str,
     date_value: date,
     description: str | None,
+    location: str = "TBD",
     tags: list[str] | None = None,
     allow_anyone_upload: bool = False,
     private_gallery: bool = False,
@@ -87,6 +88,7 @@ async def create_event(
     cleaned_name = name.strip()
     if not cleaned_name:
         raise AppError("An event name is required", code="VALIDATION_ERROR", status=422)
+    cleaned_location = _clean_location(location)
 
     settings = getSettings()
     join_token = _generate_join_token()
@@ -113,6 +115,7 @@ async def create_event(
                 "name": cleaned_name,
                 "description": description.strip() if description else None,
                 "date": date_value.isoformat(),
+                "location": cleaned_location,
                 "tags": _normalize_tags(tags),
                 "allow_anyone_upload": allow_anyone_upload,
                 "private_gallery": private_gallery,
@@ -191,6 +194,8 @@ def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: Eve
         update_payload["description"] = payload.description.strip() or None
     if payload.date is not None:
         update_payload["date"] = payload.date.isoformat()
+    if payload.location is not None:
+        update_payload["location"] = _clean_location(payload.location)
     if payload.tags is not None:
         update_payload["tags"] = _normalize_tags(payload.tags)
     if payload.allow_anyone_upload is not None:
@@ -453,6 +458,7 @@ def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) 
         id=event.id,
         name=event.name,
         date=event.date,
+        location=event.location,
         tags=event.tags,
         allowAnyoneUpload=event.allow_anyone_upload,
         privateGallery=event.private_gallery,
@@ -539,7 +545,9 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
             EventSummaryResponse(
                 id=event.id,
                 name=event.name,
+                description=event.description,
                 date=event.date,
+                location=event.location,
                 tags=event.tags,
                 allowAnyoneUpload=event.allow_anyone_upload,
                 privateGallery=event.private_gallery,
@@ -568,6 +576,7 @@ def _build_event_detail(
         name=event.name,
         description=event.description,
         date=event.date,
+        location=event.location,
         tags=event.tags,
         allowAnyoneUpload=event.allow_anyone_upload,
         privateGallery=event.private_gallery,
@@ -1022,6 +1031,11 @@ def _normalize_tags(tags: list[str] | None) -> list[str]:
         if cleaned_tag and cleaned_tag not in normalized_tags:
             normalized_tags.append(cleaned_tag[:30])
     return normalized_tags
+
+
+def _clean_location(location: str | None) -> str:
+    cleaned_location = (location or "").strip()
+    return cleaned_location[:200] if cleaned_location else "TBD"
 
 
 def _generate_join_token() -> str:

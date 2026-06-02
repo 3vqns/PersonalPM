@@ -87,6 +87,7 @@ const demoEvent: EventDetail = {
   name: "Spring Gala",
   description: "A private gallery for a PictureMe demo event.",
   date: "2026-05-10",
+  location: "TBD",
   expiresAt: "2026-06-09",
   status: "active",
   privateGallery: false,
@@ -151,7 +152,9 @@ export async function getDemoApiResponse<T>(
         {
           id: demoEvent.id,
           name: demoEvent.name,
+          description: demoEvent.description,
           date: demoEvent.date,
+          location: demoEvent.location,
           coverUrl: demoEvent.coverUrl,
           hostName: demoUser.name,
           photoCount: demoPhotos.length,
@@ -182,7 +185,9 @@ export async function getDemoApiResponse<T>(
         {
           id: "demo-conference",
           name: "Founder Summit",
+          description: "Investor sessions, founder portraits, and demo day coverage.",
           date: "2026-07-18",
+          location: "Downtown conference center",
           hostName: "Avery Chen",
           photoCount: 84,
           memberCount: 180,
@@ -231,6 +236,10 @@ export async function getDemoApiResponse<T>(
           typeof options.body.date === "string"
             ? options.body.date
             : demoEvent.date,
+        location:
+          typeof options.body.location === "string"
+            ? options.body.location
+            : demoEvent.location,
         description:
           typeof options.body.description === "string"
             ? options.body.description
@@ -266,6 +275,7 @@ export async function getDemoApiResponse<T>(
       id: demoEvent.id,
       name: demoEvent.name,
       date: demoEvent.date,
+      location: demoEvent.location,
       hostName: demoUser.name,
       coverUrl: demoEvent.coverUrl,
       photoCount: demoPhotos.length,

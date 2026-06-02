@@ -60,6 +60,7 @@ async def get_current_dashboard(
 async def post_event(
     name: str = Form(...),
     date: str = Form(...),
+    location: str = Form(default="TBD"),
     description: str | None = Form(default=None),
     tags: str = Form(default="[]"),
     allow_anyone_upload: bool = Form(default=False),
@@ -71,6 +72,7 @@ async def post_event(
     payload = _parse_event_create_payload(
         name=name,
         date=date,
+        location=location,
         description=description,
         tags=tags,
         allow_anyone_upload=allow_anyone_upload,
@@ -82,6 +84,7 @@ async def post_event(
         current_user,
         name=payload.name,
         date_value=payload.date,
+        location=payload.location,
         description=payload.description,
         tags=payload.tags,
         allow_anyone_upload=payload.allow_anyone_upload,
@@ -282,6 +285,7 @@ def _parse_event_create_payload(
     *,
     name: str,
     date: str,
+    location: str,
     description: str | None,
     tags: str,
     allow_anyone_upload: bool,
@@ -296,6 +300,7 @@ def _parse_event_create_payload(
         return EventCreateRequest(
             name=name,
             date=date,
+            location=location,
             description=description,
             tags=parsed_tags,
             allow_anyone_upload=allow_anyone_upload,

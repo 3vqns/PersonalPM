@@ -29,6 +29,7 @@
 | `name` | text | |
 | `description` | text | Optional |
 | `date` | date | Event date |
+| `location` | text | Event location label, defaults to `TBD` |
 | `tags` | text[] | Multiple event tags used for dashboard filtering |
 | `allow_anyone_upload` | boolean | Opt-in flag that allows anonymous uploaders to submit photos with a typed name |
 | `private_gallery` | boolean | Opt-in flag requiring creator/admin/approved access before gallery photos can be viewed |
@@ -122,7 +123,7 @@
 - **One event → one Rekognition collection.** All photos from an event are indexed into this collection.
 - **Anonymous upload is event-scoped and opt-in.** Events with `allow_anyone_upload` can accept uploads without an account, storing a typed `uploader_name` on the upload job.
 - **Private gallery access is event-scoped.** Events with `private_gallery` only expose photos to creators, admins, and users with an approved `event_gallery_access` row.
-- **Photo uploader attribution is stored per photo.** `photos.uploader_name` keeps the display name shown in the lightbox, using the signed-in user's public profile name or the anonymous uploader's typed name.
+- **Photo uploader attribution is stored per photo.** `photos.uploader_name` keeps the display name shown in the lightbox, using the signed-in user's public profile name or the anonymous uploader's typed name. Historical photos are backfilled from `photos.uploaded_by → users.name` or `upload_job_files → upload_jobs.uploader_name` when that linkage exists.
 - **`user_photo_matches` is the core join table.** A row here means "this user appears in this photo." This powers the My Photos tab.
 - **`event_members.role`** controls upload access. `member` means view only. `admin` means upload photos. `creator` means full event control.
 

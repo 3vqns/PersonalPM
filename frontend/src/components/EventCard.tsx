@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   CalendarDays,
+  FileText,
   Heart,
   Images,
   MapPin,
@@ -34,7 +35,8 @@ export function EventCard({
 }: EventCardProps) {
   const newPhotoCount = getNewPhotoCount(event);
   const attendeePreviews = getAttendeePreviews(event);
-  const venueLabel = getVenueLabel(category);
+  const eventDetails = event.description?.trim() || "Event details TBD";
+  const locationLabel = event.location?.trim() || "TBD";
 
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-[28px] border border-[#eadfd1] bg-white/90 shadow-card transition duration-300 hover:-translate-y-1 hover:shadow-[0_26px_70px_rgba(94,67,47,0.14)]">
@@ -94,8 +96,12 @@ export function EventCard({
             <span>{formatDate(event.date)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <MapPin className="h-4 w-4 text-seafoam-500" />
-            <span>{venueLabel}</span>
+            <FileText className="h-4 w-4 shrink-0 text-seafoam-500" />
+            <span className="line-clamp-2">{eventDetails}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <MapPin className="h-4 w-4 shrink-0 text-seafoam-500" />
+            <span>{locationLabel}</span>
           </div>
         </div>
 
@@ -173,28 +179,4 @@ function getAttendeePreviews(event: EventSummary) {
       name: event.hostName ?? "PictureMe host",
     },
   ];
-}
-
-function getVenueLabel(category: string) {
-  if (category === "Wedding") {
-    return "Private venue details";
-  }
-
-  if (category === "Conference") {
-    return "Convention venue";
-  }
-
-  if (category === "Party") {
-    return "Private celebration venue";
-  }
-
-  if (category === "Sports") {
-    return "Main event arena";
-  }
-
-  if (category === "Networking") {
-    return "Members club lounge";
-  }
-
-  return "Venue details coming soon";
 }

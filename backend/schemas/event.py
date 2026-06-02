@@ -35,7 +35,9 @@ class EventSummaryResponse(BaseModel):
 
     id: str
     name: str
+    description: str | None = None
     date: calendar_date
+    location: str = "TBD"
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
     private_gallery: bool = Field(default=False, alias="privateGallery")
@@ -78,6 +80,7 @@ class EventDetailResponse(BaseModel):
     name: str
     description: str | None = None
     date: calendar_date
+    location: str = "TBD"
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
     private_gallery: bool = Field(default=False, alias="privateGallery")
@@ -103,6 +106,7 @@ class EventCreateRequest(BaseModel):
 
     name: str = Field(max_length=120)
     date: calendar_date
+    location: str = Field(default="TBD", max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
@@ -117,6 +121,7 @@ class JoinPreviewResponse(BaseModel):
     id: str
     name: str
     date: calendar_date
+    location: str = "TBD"
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
     private_gallery: bool = Field(default=False, alias="privateGallery")
@@ -153,6 +158,7 @@ class EventUpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, max_length=120)
     date: calendar_date | None = None
+    location: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     tags: list[str] | None = None
     allow_anyone_upload: bool | None = Field(default=None, alias="allowAnyoneUpload")
@@ -251,6 +257,7 @@ class EventRecord(BaseModel):
     name: str
     description: str | None = None
     date: calendar_date
+    location: str = "TBD"
     expires_at: datetime | None = None
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = False
