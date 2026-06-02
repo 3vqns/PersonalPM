@@ -367,7 +367,7 @@ export function EventGalleryPage() {
 
       {showDenied ? (
         <div className="rounded-3xl bg-amber-50 px-4 py-3 text-sm text-amber-600">
-          Only the event creator can open event settings.
+          Only event owners and admins can open event settings.
         </div>
       ) : null}
 
@@ -407,7 +407,7 @@ export function EventGalleryPage() {
               <UserPlus className="mr-2 h-4 w-4" />
               People
             </Link>
-            {event.role === "creator" ? (
+            {event.role === "creator" || event.role === "admin" ? (
               <Link className="secondary-button" to={`/event/${id}/settings`}>
                 <Settings className="mr-2 h-4 w-4" />
                 Event settings
@@ -439,8 +439,8 @@ export function EventGalleryPage() {
             <p className="font-medium text-ink">Private gallery</p>
             <p className="mt-2 text-sm leading-6 text-slate">
               {event.galleryAccessStatus === "pending"
-                ? "Your access request is waiting for the event owner."
-                : "Request access from the event owner to view photos."}
+                ? "Your access request is waiting for an event owner or admin."
+                : "Request access from an event owner or admin to view photos."}
             </p>
             <button
               type="button"

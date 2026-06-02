@@ -23,6 +23,7 @@ Build a product that allows users to register their face to their account once, 
 - The Event Organizer can manage the event, manage the gallery, and control contributor permissions for that event.
 - The Event Organizer controls whether anonymous users can upload photos for that event.
 - The Event Organizer controls whether the full gallery is private and can approve, invite, or remove signed-up users from private gallery access.
+- Event admins can edit event settings and manage private gallery access requests, but only the Event Organizer can delete the event or promote and demote admins.
 - The Event Organizer can invite other users as contributors and remove that privilege later.
 - Contributors can upload photos and manage only the photos they uploaded.
 - Non-privileged users can view allowed gallery photos but do not have organizer or contributor permissions.
@@ -42,6 +43,7 @@ Build a product that allows users to register their face to their account once, 
 
 - Each event exposes a QR code.
 - Scanning the QR code registers the user as an attendee for that event.
+- In private-gallery mode, scanning the QR code creates a pending gallery access request until an owner or admin approves it.
 - Organizers can also manually add users to an event attendee list.
 
 ### Personalized Galleries And Notifications
