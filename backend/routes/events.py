@@ -34,6 +34,7 @@ from backend.services.event_service import (
     get_join_preview,
     get_public_event_gallery,
     join_event,
+    join_event_by_token,
     list_event_people,
     list_gallery_access,
     list_event_members,
@@ -110,6 +111,16 @@ async def get_event_public_gallery(
 ) -> PublicEventGalleryResponse:
     """Return the public event gallery for an invite token."""
     return get_public_event_gallery(token, current_user=current_user)
+
+
+@router.post("/api/events/join/{token}", response_model=EventJoinResponse)
+async def post_join_event_by_token(
+    token: str,
+    background_tasks: BackgroundTasks,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> EventJoinResponse:
+    """Join an event directly from an invite token."""
+    return join_event_by_token(current_user, token=token, background_tasks=background_tasks)
 
 
 @router.post("/api/events/{event_id}/join", response_model=EventJoinResponse)

@@ -75,7 +75,11 @@ describe("JoinEventPage", () => {
       startDemo: vi.fn(),
     });
 
-    mockedApiFetch.mockImplementation(async (path: string) => {
+    mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path === "/api/events/join/demo-token" && options?.method === "POST") {
+        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+      }
+
       if (path === "/api/events/join/demo-token") {
         return {
           id: "event-1",
@@ -114,10 +118,6 @@ describe("JoinEventPage", () => {
         };
       }
 
-      if (path === "/api/events/event-1/join") {
-        return { eventId: "event-1", alreadyJoined: false, role: "member" };
-      }
-
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -151,7 +151,11 @@ describe("JoinEventPage", () => {
       startDemo: vi.fn(),
     });
 
-    mockedApiFetch.mockImplementation(async (path: string) => {
+    mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path === "/api/events/join/demo-token" && options?.method === "POST") {
+        return { eventId: "event-1", alreadyJoined: true, role: "member" };
+      }
+
       if (path === "/api/events/join/demo-token") {
         return {
           id: "event-1",
@@ -192,7 +196,7 @@ describe("JoinEventPage", () => {
         };
       }
 
-      if (path === "/api/events/event-1/join") {
+      if (path === "/api/events/join/demo-token") {
         return { eventId: "event-1", alreadyJoined: false, role: "member" };
       }
 
@@ -209,7 +213,63 @@ describe("JoinEventPage", () => {
     );
 
     await waitFor(() => {
-      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
+      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/join/demo-token", {
+        method: "POST",
+      });
+    });
+    expect(await screen.findByText("Joined public gallery")).toBeInTheDocument();
+  });
+
+  it("repairs signed-in users who already have membership before opening the event", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: {
+        id: "user-1",
+        email: "guest@example.com",
+        name: "Jordan",
+        hasFaceProfile: false,
+      },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path === "/api/events/join/demo-token" && options?.method === "POST") {
+        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+      }
+
+      if (path === "/api/events/join/demo-token") {
+        return {
+          id: "event-1",
+          name: "Demo Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 42,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          alreadyJoined: true,
+          privateGallery: false,
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/join/demo-token"]}>
+        <Routes>
+          <Route path="/join/:token" element={<JoinEventPage />} />
+          <Route path="/event/:eventId" element={<p>Joined public gallery</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/join/demo-token", {
         method: "POST",
       });
     });
@@ -258,7 +318,7 @@ describe("JoinEventPage", () => {
         };
       }
 
-      if (path === "/api/events/event-1/join") {
+      if (path === "/api/events/join/demo-token") {
         return {};
       }
 
@@ -353,10 +413,6 @@ describe("JoinEventPage", () => {
         };
       }
 
-      if (path === "/api/events/event-1/join") {
-        return { eventId: "event-1", alreadyJoined: false, role: "member" };
-      }
-
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -370,7 +426,7 @@ describe("JoinEventPage", () => {
     );
 
     await waitFor(() => {
-      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
+      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/join/demo-token", {
         method: "POST",
       });
     });

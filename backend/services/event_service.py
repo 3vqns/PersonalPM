@@ -546,6 +546,26 @@ def join_event(
 ) -> EventJoinResponse:
     """Join an event if needed and enqueue the async match kickoff when eligible."""
     event = _get_event_or_404(event_id)
+    return _join_event_record(current_user, event=event, background_tasks=background_tasks)
+
+
+def join_event_by_token(
+    current_user: AuthenticatedUser,
+    *,
+    token: str,
+    background_tasks: BackgroundTasks,
+) -> EventJoinResponse:
+    """Join an event directly from the invite token used by QR codes and join links."""
+    event = _get_event_by_join_token(token)
+    return _join_event_record(current_user, event=event, background_tasks=background_tasks)
+
+
+def _join_event_record(
+    current_user: AuthenticatedUser,
+    *,
+    event: EventRecord,
+    background_tasks: BackgroundTasks,
+) -> EventJoinResponse:
     public_user = get_public_user_record(current_user)
     if event.creator_id == current_user.user_id:
         return EventJoinResponse(eventId=event.id, alreadyJoined=True, role="creator")
@@ -567,16 +587,12 @@ def join_event(
     elif membership is None or membership.role != "admin":
         existing_status = _get_gallery_access_status(event.id, current_user.user_id)
         if existing_status is None:
-            try:
-                get_supabase_admin_client().table("event_gallery_access").insert(
-                    {
-                        "event_id": event.id,
-                        "user_id": current_user.user_id,
-                        "status": "pending",
-                    }
-                ).execute()
-            except Exception as exc:
-                raise AppError("PictureMe could not request gallery access", code="ACCESS_REQUEST_FAILED", status=500) from exc
+            _upsert_gallery_access(
+                event_id=event.id,
+                user_id=current_user.user_id,
+                status="pending",
+                invited_by=event.creator_id,
+            )
 
     if public_user.has_face_profile:
         background_tasks.add_task(

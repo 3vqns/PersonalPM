@@ -179,21 +179,8 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
         created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
         private_gallery=True,
     )
-    inserted_access_rows: list[dict] = []
     ensured_members: list[tuple[str, str]] = []
-
-    class _AccessTable:
-        def insert(self, payload):
-            inserted_access_rows.append(payload)
-            return self
-
-        def execute(self):
-            return SimpleNamespace(data={"id": "access-1"})
-
-    class _AccessClient:
-        def table(self, name: str):
-            assert name == "event_gallery_access"
-            return _AccessTable()
+    client = _FakeClient()
 
     monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
     monkeypatch.setattr(
@@ -211,18 +198,86 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
     monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
     monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
     monkeypatch.setattr(event_service, "_get_gallery_access_status", lambda _event_id, _user_id: None)
-    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _AccessClient())
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
 
     response = event_service.join_event(current_user, event_id=event.id, background_tasks=FakeBackgroundTasks())
 
     assert response.role == "member"
     assert ensured_members == [("event-1", "user-1")]
-    assert inserted_access_rows == [
-        {
-            "event_id": "event-1",
-            "user_id": "user-1",
-            "status": "pending",
-        }
+    assert client.upserted_gallery_access == [
+        (
+            {
+                "event_id": "event-1",
+                "user_id": "user-1",
+                "status": "pending",
+                "invited_by": "creator-1",
+                "approved_at": None,
+            },
+            "event_id,user_id",
+        )
+    ]
+
+
+def test_join_public_event_repairs_access_for_existing_member(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    membership = EventMemberRecord(
+        id="member-1",
+        event_id=event.id,
+        user_id=current_user.user_id,
+        role="member",
+        joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    client = _FakeClient()
+
+    monkeypatch.setattr(event_service, "_get_event_by_join_token", lambda _token: event)
+    monkeypatch.setattr(
+        event_service,
+        "get_public_user_record",
+        lambda _current_user: PublicUserRecord(
+            id=current_user.user_id,
+            email=current_user.email or "",
+            name="User One",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: membership)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+
+    response = event_service.join_event_by_token(current_user, token="join-token", background_tasks=FakeBackgroundTasks())
+
+    assert response.already_joined is True
+    assert response.event_id == event.id
+    assert client.upserted_memberships == []
+    assert client.upserted_gallery_access == [
+        (
+            {
+                "event_id": event.id,
+                "user_id": current_user.user_id,
+                "status": "approved",
+                "invited_by": event.creator_id,
+                "approved_at": client.upserted_gallery_access[0][0]["approved_at"],
+            },
+            "event_id,user_id",
+        )
     ]
 
 
