@@ -6,7 +6,7 @@ This repository contains the code and documentation for PictureMe, an event phot
 
 ## Major Folders
 
-### [frontend](/Users/tervin23/Documents/AG/PictureMe/frontend)
+### [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend)
 
 Purpose:
 
@@ -20,9 +20,9 @@ Current state:
 
 Documentation:
 
-- [Frontend Notes](/Users/tervin23/Documents/AG/PictureMe/docs/frontend.md)
+- [Frontend Notes](/Users/tervin23/Documents/AG/PersonalPM/docs/frontend.md)
 
-### [backend](/Users/tervin23/Documents/AG/PictureMe/backend)
+### [backend](/Users/tervin23/Documents/AG/PersonalPM/backend)
 
 Purpose:
 
@@ -36,9 +36,9 @@ Current state:
 
 Documentation:
 
-- [Backend Notes](/Users/tervin23/Documents/AG/PictureMe/docs/backend.md)
+- [Backend Notes](/Users/tervin23/Documents/AG/PersonalPM/docs/backend.md)
 
-### [docs](/Users/tervin23/Documents/AG/PictureMe/docs)
+### [docs](/Users/tervin23/Documents/AG/PersonalPM/docs)
 
 Purpose:
 
@@ -52,5 +52,5 @@ Current files:
 - `backendPlan.md`: Breaks backend implementation into staged delivery milestones tied to the documented product flow.
 - `frontend.md`: Documents the current frontend structure and Supabase integration boundary.
 - `implementation-rules.md`: Defines required Supabase syntax, API contract, frontend, and deployment rules for future changes.
-- `Tasks.md`: Stores the original dad-feedback backlog with detailed implementation notes.
-- `tasks-implementation-plan.md`: Reorganizes the dad-feedback backlog into four work groups, dependency order, and verification checkpoints.
+- `tdocs/Tasks.md`: Stores the original dad-feedback backlog with detailed implementation notes.
+- `tdocs/tasks-implementation-plan.md`: Reorganizes the dad-feedback backlog into four work groups, dependency order, and verification checkpoints.

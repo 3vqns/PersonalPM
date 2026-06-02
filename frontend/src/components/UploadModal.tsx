@@ -7,6 +7,8 @@ import { cn } from "../lib/cn";
 import type { UploadJobProgress } from "../types";
 import { Modal } from "./Modal";
 
+const maxUploadFiles = 100;
+
 interface UploadModalProps {
   eventId: string;
   onClose: () => void;
@@ -31,6 +33,10 @@ export function UploadModal({
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploadStarted = Boolean(jobId) && !isDemo && !error;
+  const fileLimitError =
+    files.length > maxUploadFiles
+      ? `You selected ${files.length} photos. Please select ${maxUploadFiles} or fewer at a time.`
+      : null;
 
   const disableClose =
     submitting &&
@@ -77,6 +83,11 @@ export function UploadModal({
   async function handleSubmit() {
     if (!files.length) {
       setError("Select at least one photo to upload.");
+      return;
+    }
+
+    if (fileLimitError) {
+      setError(fileLimitError);
       return;
     }
 
@@ -167,6 +178,9 @@ export function UploadModal({
       if (zipFiles.length > 0) {
         const formData = new FormData();
         zipFiles.forEach((f) => formData.append("photos", f));
+        if (uploaderName) {
+          formData.append("uploader_name", uploaderName);
+        }
         const zipResponse = await apiFetch<{ jobId: string }>(
           `/api/events/${eventId}/photos`,
           { method: "POST", body: formData, auth: uploaderName ? "optional" : true },
@@ -233,6 +247,9 @@ export function UploadModal({
             </p>
             <p className="text-sm text-slate">
               Or tap to browse your camera roll, desktop, or a zipped batch
+            </p>
+            <p className="text-xs font-medium text-seafoam-700">
+              You can upload up to {maxUploadFiles} photos at once
             </p>
           </div>
           <input
@@ -329,6 +346,9 @@ export function UploadModal({
         ) : null}
 
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {fileLimitError ? (
+          <p className="text-sm text-red-600">{fileLimitError}</p>
+        ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <button
@@ -346,6 +366,7 @@ export function UploadModal({
             disabled={
               submitting ||
               !files.length ||
+              Boolean(fileLimitError) ||
               (isDemo && progress?.status === "completed") ||
               uploadStarted
             }
