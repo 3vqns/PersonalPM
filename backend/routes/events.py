@@ -37,6 +37,7 @@ from backend.services.event_service import (
     list_event_people,
     list_gallery_access,
     list_event_members,
+    remove_event_member,
     remove_gallery_access,
     request_gallery_access,
     update_event,
@@ -225,6 +226,16 @@ async def patch_event_member_role(
 ) -> dict[str, bool]:
     """Update a member role. Only the creator may do this."""
     return update_event_member_role(current_user, event_id=event_id, member_user_id=user_id, role=payload.role)
+
+
+@router.delete("/api/events/{event_id}/members/{user_id}")
+async def delete_event_member(
+    event_id: str,
+    user_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> dict[str, bool]:
+    """Remove one member from an event. Event managers may remove non-creator members."""
+    return remove_event_member(current_user, event_id=event_id, member_user_id=user_id)
 
 
 @router.post("/api/events/{event_id}/photos", response_model=UploadJobStartResponse)

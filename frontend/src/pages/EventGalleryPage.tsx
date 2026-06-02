@@ -18,7 +18,7 @@ import { ShareModal } from "../components/ShareModal";
 import { Spinner } from "../components/Spinner";
 import { UploadModal } from "../components/UploadModal";
 import { useAuth } from "../hooks/useAuth";
-import { apiFetch } from "../lib/api";
+import { ApiError, apiFetch } from "../lib/api";
 import { cn } from "../lib/cn";
 import { formatDate } from "../lib/date";
 import { normalizePhoto } from "../lib/normalizers";
@@ -36,6 +36,15 @@ import type {
 } from "../types";
 
 type LightboxSource = "my" | "all" | null;
+type LoadDebugError = {
+  message: string;
+  status?: number;
+  code?: string;
+  path?: string;
+  requestId?: string;
+  details?: unknown;
+  errorName?: string;
+};
 
 export function EventGalleryPage() {
   const { id = "" } = useParams();
@@ -49,6 +58,7 @@ export function EventGalleryPage() {
   const [activeTab, setActiveTab] = useState<"my" | "all">("my");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadDebugError, setLoadDebugError] = useState<LoadDebugError | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
   const [lightboxSource, setLightboxSource] = useState<LightboxSource>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -97,6 +107,7 @@ export function EventGalleryPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLoadDebugError(null);
     setGalleryError(null);
 
     try {
@@ -142,11 +153,8 @@ export function EventGalleryPage() {
         setHasFaceProfile(true);
       }
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "PictureMe could not load this gallery.",
-      );
+      setError(getEventLoadMessage(requestError, id));
+      setLoadDebugError(getLoadDebugError(requestError));
     } finally {
       setLoading(false);
     }
@@ -351,6 +359,7 @@ export function EventGalleryPage() {
             <p className="mt-2 text-sm leading-6 text-slate">
               {error ?? "PictureMe could not load this event."}
             </p>
+            {loadDebugError ? <GalleryDebugDetails error={loadDebugError} /> : null}
           </div>
         </div>
       </div>
@@ -665,10 +674,120 @@ function isRecoverableEventAccessError(error: unknown) {
 }
 
 function getGalleryLoadMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 403) {
+      return "Some photos are unavailable because your gallery access could not be verified.";
+    }
+    if (error.status >= 500) {
+      return "Some photos are unavailable because the gallery service had a problem.";
+    }
+    return "Some gallery photos could not load. Try refreshing the page.";
+  }
   if (error instanceof Error && error.message) {
-    return error.message;
+    return "Some gallery photos could not load because the browser could not reach the gallery service.";
   }
   return "Some gallery photos could not load. Try again.";
+}
+
+function getEventLoadMessage(error: unknown, eventId: string) {
+  if (error instanceof ApiError) {
+    const requestId = error.requestId ? ` Request reference: ${error.requestId}.` : "";
+    if (error.status === 403) {
+      return `You do not currently have access to this gallery. If you joined with a link or QR code, reopen that invite and try again.${requestId}`;
+    }
+    if (error.status === 404) {
+      return `This gallery could not be found or is no longer available.${requestId}`;
+    }
+    return `PictureMe could not load this gallery right now. Try refreshing, then try the invite link again if this is a newly joined event.${requestId}`;
+  }
+
+  if (error instanceof Error && error.message) {
+    return `PictureMe could not connect to the gallery service for event ${eventId}. Refresh the page, then try the invite link again if this is a newly joined event.`;
+  }
+
+  return `Event ${eventId} failed to load for an unknown reason.`;
+}
+
+function getLoadDebugError(error: unknown): LoadDebugError {
+  if (error instanceof ApiError) {
+    return {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      path: error.path,
+      requestId: error.requestId,
+      details: error.details,
+      errorName: error.name,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      errorName: error.name,
+    };
+  }
+
+  return { message: String(error) };
+}
+
+function GalleryDebugDetails({ error }: { error: LoadDebugError }) {
+  const showDeveloperDetails = import.meta.env.DEV;
+
+  return (
+    <details className="mt-4 rounded-2xl border border-red-100 bg-red-50/60 p-4 text-xs text-red-900">
+      <summary className="cursor-pointer font-semibold">Troubleshooting details</summary>
+      <dl className="mt-3 space-y-2">
+        <DebugRow label="request id" value={error.requestId} />
+        <DebugRow label="status" value={getSafeStatusLabel(error.status)} />
+        {showDeveloperDetails ? (
+          <>
+            <DebugRow label="message" value={error.message} />
+            <DebugRow label="error" value={error.errorName} />
+            <DebugRow label="path" value={error.path} />
+            <DebugRow label="code" value={error.code} />
+          </>
+        ) : null}
+        {showDeveloperDetails && typeof error.details !== "undefined" ? (
+          <div>
+            <dt className="font-semibold uppercase tracking-[0.18em]">details</dt>
+            <dd className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white/70 p-2">
+              {JSON.stringify(error.details, null, 2)}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </details>
+  );
+}
+
+function getSafeStatusLabel(status?: number) {
+  if (!status) {
+    return undefined;
+  }
+  if (status === 401 || status === 403) {
+    return "Access issue";
+  }
+  if (status === 404) {
+    return "Not found";
+  }
+  if (status >= 500) {
+    return "Service issue";
+  }
+  return "Request issue";
+}
+
+function DebugRow({ label, value }: { label: string; value?: string }) {
+  if (!value) {
+    return null;
+  }
+
+  return (
+    <div>
+      <dt className="font-semibold uppercase tracking-[0.18em]">{label}</dt>
+      <dd className="mt-1 break-words">{value}</dd>
+    </div>
+  );
 }
 
 function getTopUploaders(people: EventPerson[]) {

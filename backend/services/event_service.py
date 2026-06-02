@@ -318,11 +318,50 @@ def update_event_member_role(
     return {"success": True}
 
 
+def remove_event_member(
+    current_user: AuthenticatedUser,
+    *,
+    event_id: str,
+    member_user_id: str,
+) -> dict[str, bool]:
+    """Fully remove one non-creator user from an event and its access rows."""
+    event = _get_event_or_404(event_id)
+    manager_role = _require_event_manager(current_user.user_id, event)
+
+    if member_user_id == event.creator_id:
+        raise AppError("The event creator cannot be removed from the event", code="MEMBER_REMOVE_FORBIDDEN", status=403)
+    if member_user_id == current_user.user_id:
+        raise AppError("You cannot remove yourself from this event", code="MEMBER_REMOVE_FORBIDDEN", status=403)
+
+    membership = _get_membership(event_id, member_user_id)
+    if membership is None:
+        raise AppError("Event member not found", code="MEMBER_NOT_FOUND", status=404)
+    if manager_role == "admin" and membership.role == "admin":
+        raise AppError("Only the owner can remove another admin", code="MEMBER_REMOVE_FORBIDDEN", status=403)
+
+    client = get_supabase_admin_client()
+    try:
+        client.table("event_gallery_access").delete().eq("event_id", event_id).eq("user_id", member_user_id).execute()
+        client.table("user_photo_matches").delete().eq("event_id", event_id).eq("user_id", member_user_id).execute()
+        client.table("event_members").delete().eq("event_id", event_id).eq("user_id", member_user_id).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not remove this event member", code="MEMBER_REMOVE_FAILED", status=500) from exc
+
+    return {"success": True}
+
+
 def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> GalleryAccessRequestResponse:
     """Create or reuse a pending gallery access request for the current user."""
     event = _get_event_or_404(event_id)
     if not event.private_gallery:
         _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
+        if current_user.user_id != event.creator_id:
+            _upsert_gallery_access(
+                event_id=event.id,
+                user_id=current_user.user_id,
+                status="approved",
+                invited_by=event.creator_id,
+            )
         return GalleryAccessRequestResponse(status="approved")
     if current_user.user_id == event.creator_id:
         return GalleryAccessRequestResponse(status="owner")
@@ -518,7 +557,14 @@ def join_event(
         _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         membership = _get_membership(event.id, current_user.user_id)
 
-    if event.private_gallery and (membership is None or membership.role != "admin"):
+    if not event.private_gallery:
+        _upsert_gallery_access(
+            event_id=event.id,
+            user_id=current_user.user_id,
+            status="approved",
+            invited_by=event.creator_id,
+        )
+    elif membership is None or membership.role != "admin":
         existing_status = _get_gallery_access_status(event.id, current_user.user_id)
         if existing_status is None:
             try:
@@ -942,6 +988,8 @@ def _get_public_gallery_access_status(event: EventRecord, user_id: str) -> Galle
     if user_id == event.creator_id:
         return "owner"
     membership = _get_membership(event.id, user_id)
+    if membership and not event.private_gallery:
+        return "approved"
     if membership and membership.role == "admin":
         return "approved"
     return _get_gallery_access_status(event.id, user_id) or "none"
@@ -955,6 +1003,8 @@ def _get_effective_gallery_access_status(
     if user_id == event.creator_id:
         return "owner"
     membership = _get_membership(event.id, user_id)
+    if membership and not event.private_gallery:
+        return "approved"
     if membership and membership.role == "admin":
         return "approved"
     return access_by_user_id.get(user_id, "none")

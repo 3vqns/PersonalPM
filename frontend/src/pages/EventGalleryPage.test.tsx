@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { EventGalleryPage } from "./EventGalleryPage";
 import { useAuth } from "../hooks/useAuth";
-import { apiFetch } from "../lib/api";
+import { ApiError, apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabase";
 
 vi.mock("../hooks/useAuth", () => ({
@@ -11,6 +11,37 @@ vi.mock("../hooks/useAuth", () => ({
 }));
 
 vi.mock("../lib/api", () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    code?: string;
+    details?: unknown;
+    requestId?: string;
+    path: string;
+
+    constructor({
+      message,
+      status,
+      code,
+      details,
+      requestId,
+      path,
+    }: {
+      message: string;
+      status: number;
+      code?: string;
+      details?: unknown;
+      requestId?: string;
+      path: string;
+    }) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+      this.code = code;
+      this.details = details;
+      this.requestId = requestId;
+      this.path = path;
+    }
+  },
   apiFetch: vi.fn(),
 }));
 
@@ -502,7 +533,7 @@ describe("EventGalleryPage", () => {
 
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
     expect(screen.queryByText("Gallery unavailable")).not.toBeInTheDocument();
-    expect(screen.getByText(/Could not load your photos/i)).toBeInTheDocument();
+    expect(screen.getByText(/Some gallery photos could not load/i)).toBeInTheDocument();
   });
 
   it("repairs a stale missing membership before showing gallery unavailable", async () => {
@@ -568,5 +599,41 @@ describe("EventGalleryPage", () => {
     expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
       method: "POST",
     });
+  });
+
+  it("shows endpoint and backend code when the event load fails", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: { id: "user-1", email: "me@example.com", name: "Jordan", hasFaceProfile: true },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockRejectedValue(
+      new ApiError({
+        message: "Request access before viewing this private gallery",
+        status: 403,
+        code: "GALLERY_ACCESS_REQUIRED",
+        requestId: "request-1",
+        path: "/api/events/event-1",
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1"]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventGalleryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Gallery unavailable")).toBeInTheDocument();
+    expect(screen.getByText(/You do not currently have access to this gallery/i)).toBeInTheDocument();
+    expect(screen.getByText("Troubleshooting details")).toBeInTheDocument();
+    expect(screen.getByText("GALLERY_ACCESS_REQUIRED")).toBeInTheDocument();
+    expect(screen.getByText("request-1")).toBeInTheDocument();
   });
 });

@@ -82,6 +82,68 @@ describe("EventPeoplePage", () => {
     });
   });
 
+  it("lets event managers fully remove members from the users tab", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/event-1/people") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Launch Party",
+            date: "2026-05-10",
+            status: "active",
+            joinToken: "join-token",
+            role: "admin",
+            privateGallery: false,
+            galleryAccessStatus: "approved",
+            creator: { id: "creator-1", name: "Taylor" },
+            counts: { allPhotos: 8, myPhotos: 1, members: 2 },
+          },
+          people: [
+            {
+              id: "user-2",
+              name: "Alex",
+              email: "alex@example.com",
+              role: "member",
+              kind: "member",
+              uploadCount: 1,
+            },
+          ],
+        };
+      }
+
+      if (path === "/api/events/event-1/members/user-2") {
+        return { success: true };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1/people"]}>
+        <Routes>
+          <Route path="/event/:id/people" element={<EventPeoplePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Alex")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("Remove Alex from this event?");
+    await waitFor(() => {
+      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/members/user-2", {
+        method: "DELETE",
+      });
+    });
+    expect(screen.queryByText("Alex")).not.toBeInTheDocument();
+    expect(screen.getByText("Alex was removed from the event.")).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
   it("labels redacted member emails without marking the member anonymous", async () => {
     mockedApiFetch.mockImplementation(async (path: string) => {
       if (path === "/api/events/event-1/people") {
