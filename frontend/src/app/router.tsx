@@ -55,6 +55,7 @@ export function AppRouter() {
         </Route>
         <Route path="/join/:token" element={<JoinEventPage />} />
         <Route path="/gallery/:token" element={<PublicGalleryPage />} />
+        <Route path="/event-gallery/:token" element={<PublicGalleryPage mode="event" />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/event/:id" element={<EventGalleryPage />} />

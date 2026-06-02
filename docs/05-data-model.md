@@ -185,6 +185,8 @@
 | PATCH | `/api/events/{id}/members/{user_id}` | Creator | Update member role |
 | POST | `/api/gallery-tokens` | Member | Generate shareable My Photos link |
 | GET | `/api/gallery/{token}` | Public | Fetch shared gallery without auth |
+| POST | `/api/event-gallery-tokens` | Member | Generate read-only full gallery share link |
+| GET | `/api/event-gallery/{token}` | Public | Fetch shared full event gallery without auth |
 | POST | `/api/cleanup` | Internal | Nightly expiry job |
 
 ---

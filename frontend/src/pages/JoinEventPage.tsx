@@ -63,17 +63,6 @@ export function JoinEventPage() {
         setPreview(invitePreview);
         setPublicGallery(null);
 
-        if (!invitePreview.privateGallery) {
-          const response = await apiFetch<PublicEventGalleryResponse>(`/api/events/join/${token}/gallery`, {
-            auth: "optional",
-          });
-          setPreview({
-            ...response.event,
-            alreadyJoined: invitePreview.alreadyJoined ?? response.event.alreadyJoined,
-            galleryAccessStatus: invitePreview.galleryAccessStatus ?? response.event.galleryAccessStatus,
-          });
-          setPublicGallery(response);
-        }
         setError(null);
         setDebugError(null);
       } catch (requestError) {

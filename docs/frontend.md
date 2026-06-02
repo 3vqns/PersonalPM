@@ -15,7 +15,8 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 
 ## Current Gallery And Upload Behavior
 
-- [frontend/src/pages/EventGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventGalleryPage.tsx): Shows event metadata, including the event description, and uses one header Share button that opens a modal for personal gallery sharing or full gallery sharing. The old inline created-event share panel is intentionally not rendered on the gallery route.
+- [frontend/src/pages/EventGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventGalleryPage.tsx): Shows event metadata, including the event description, and uses one header Share button that opens a modal for personal gallery sharing or full gallery sharing. Both share options are read-only public gallery views and do not register viewers for the event.
+- [frontend/src/pages/PublicGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/PublicGalleryPage.tsx): Renders public tokenized gallery views for `/gallery/{token}` personal shares and `/event-gallery/{token}` full-event shares.
 - [frontend/src/components/EventCard.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/EventCard.tsx): Shows event details and the event location on dashboard cards instead of placeholder venue copy.
 - [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Uses tabs for signed-in users, anonymous uploaders, and private-gallery access rows when private mode is enabled. Owners can promote or demote admins from the Users tab; owners and admins can approve, invite, or remove private-gallery access from the Private Access List tab.
 - [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Lets owners and admins remove signed-in members from the Users tab. Removal fully removes event membership so the event disappears from that user's dashboard.
@@ -29,7 +30,8 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - Signed-in members who are not approved see a private gallery request panel instead of photo grids.
 - Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
 - Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
-- Join links and QR codes load a lightweight invite preview before public photos. Public-gallery invites show the public photos to signed-in and signed-out visitors even when the signed-in user is not registered for the event yet; signed-in visitors are also registered in the background and receive approved gallery access so scans still add them to the event. Private-gallery invites show the auth/request-access flow without requiring the public gallery endpoint to succeed first.
+- Event gallery share links and QR codes do not use join tokens. Personal Gallery Share uses `/gallery/{token}` and Full Gallery Share uses `/event-gallery/{token}` so signed-in and signed-out visitors can view the shared photos without changing event membership.
+- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration: public events approve the joining user immediately, while private events create a pending gallery-access request for owner or admin review.
 - Gallery load failures show safe troubleshooting copy to normal users and a request reference when one exists. Local development builds can show endpoint/code/details behind the troubleshooting panel for debugging.
 
 ## Remaining Backend Integration Cleanup

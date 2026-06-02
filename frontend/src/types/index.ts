@@ -182,7 +182,7 @@ export interface GalleryResponse {
     name: string;
     avatarUrl?: string;
   };
-  photos: MatchedPhoto[];
+  photos: Photo[];
   downloadAllUrl?: string;
 }
 

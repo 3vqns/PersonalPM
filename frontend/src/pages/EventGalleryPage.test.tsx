@@ -101,6 +101,10 @@ describe("EventGalleryPage", () => {
         return { token: "gallery-token", url: "https://example.com/gallery/gallery-token" };
       }
 
+      if (path === "/api/event-gallery-tokens") {
+        return { token: "event-gallery-token", url: "https://example.com/event-gallery/event-gallery-token" };
+      }
+
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -186,6 +190,13 @@ describe("EventGalleryPage", () => {
         return { token: "gallery-token", url: "https://example.com/gallery/gallery-token" };
       }
 
+      if (path === "/api/event-gallery-tokens") {
+        return {
+          token: "event-gallery-token",
+          url: "https://example.com/event-gallery/event-gallery-token",
+        };
+      }
+
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -268,6 +279,13 @@ describe("EventGalleryPage", () => {
         return { token: "gallery-token", url: "https://example.com/gallery/gallery-token" };
       }
 
+      if (path === "/api/event-gallery-tokens") {
+        return {
+          token: "event-gallery-token",
+          url: "https://example.com/event-gallery/event-gallery-token",
+        };
+      }
+
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -286,7 +304,7 @@ describe("EventGalleryPage", () => {
     expect(
       await screen.findByRole("heading", { name: /share full gallery/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
+    expect(screen.getByText("https://example.com/event-gallery/event-gallery-token")).toBeInTheDocument();
   });
 
   it("uses the share modal for newly created events", async () => {
@@ -327,6 +345,10 @@ describe("EventGalleryPage", () => {
         };
       }
 
+      if (path === "/api/event-gallery-tokens") {
+        return { token: "event-gallery-token", url: "https://example.com/event-gallery/event-gallery-token" };
+      }
+
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -344,7 +366,7 @@ describe("EventGalleryPage", () => {
     await user.click(screen.getByRole("button", { name: /^share$/i }));
     await user.click(await screen.findByRole("button", { name: /share full gallery/i }));
 
-    expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
+    expect(screen.getByText("https://example.com/event-gallery/event-gallery-token")).toBeInTheDocument();
   });
 
   it("shows the event settings link to admins", async () => {

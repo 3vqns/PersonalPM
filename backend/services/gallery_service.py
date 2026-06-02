@@ -61,6 +61,16 @@ def create_or_reuse_gallery_token(current_user: AuthenticatedUser, *, event_id: 
     return ShareGalleryTokenResponse(token=token, url=f"{settings.frontend_origin.rstrip('/')}/gallery/{token}")
 
 
+def create_or_reuse_event_gallery_token(current_user: AuthenticatedUser, *, event_id: str) -> ShareGalleryTokenResponse:
+    """Create a deterministic share token scoped to one full event gallery."""
+    event = _get_event_or_404(event_id)
+    _require_gallery_access(current_user.user_id, event)
+
+    token = _create_event_gallery_token(event_id=event_id)
+    settings = getSettings()
+    return ShareGalleryTokenResponse(token=token, url=f"{settings.frontend_origin.rstrip('/')}/event-gallery/{token}")
+
+
 def get_shared_gallery(token: str) -> GalleryResponse:
     """Return the token owner's matched-photo gallery only."""
     token_record = _get_gallery_token_or_404(token)
@@ -80,9 +90,37 @@ def get_shared_gallery(token: str) -> GalleryResponse:
     )
 
 
+def get_shared_event_gallery(token: str) -> GalleryResponse:
+    """Return all event photos for a tokenized full-gallery share."""
+    event_id = _get_event_gallery_token_event_id_or_404(token)
+    event = _get_event_or_404(event_id)
+    owner = _get_public_user_by_id(event.creator_id)
+    photo_records = _list_event_photos(event.id)
+
+    return GalleryResponse(
+        event=SharedGalleryEventResponse(id=event.id, name=event.name, date=event.date),
+        sharedBy=SharedGalleryOwnerResponse(id=owner.id, name=owner.name, avatarUrl=owner.avatar_url),
+        photos=[_map_photo(photo) for photo in photo_records],
+        downloadAllUrl=None,
+    )
+
+
 def _create_gallery_token(*, event_id: str, user_id: str) -> str:
     settings = getSettings()
     payload = f"{event_id}:{user_id}".encode("utf-8")
+    signature = hmac.new(
+        settings.internal_api_secret_value.encode("utf-8"),
+        payload,
+        hashlib.sha256,
+    ).digest()[:12]
+    encoded_payload = _urlsafe_b64encode(payload)
+    encoded_signature = _urlsafe_b64encode(signature)
+    return f"{encoded_payload}.{encoded_signature}"
+
+
+def _create_event_gallery_token(*, event_id: str) -> str:
+    settings = getSettings()
+    payload = f"{event_id}:full".encode("utf-8")
     signature = hmac.new(
         settings.internal_api_secret_value.encode("utf-8"),
         payload,
@@ -109,6 +147,27 @@ def _get_gallery_token_or_404(token: str) -> GalleryTokenRecord:
         raise AppError("This shared gallery link is no longer available", code="GALLERY_NOT_FOUND", status=404)
 
     return GalleryTokenRecord(token=token, user_id=user_id, event_id=event_id)
+
+
+def _get_event_gallery_token_event_id_or_404(token: str) -> str:
+    try:
+        encoded_payload, encoded_signature = token.split(".", 1)
+        payload = _urlsafe_b64decode(encoded_payload)
+        supplied_signature = _urlsafe_b64decode(encoded_signature)
+        event_id, scope = payload.decode("utf-8").split(":", 1)
+    except Exception as exc:
+        raise AppError("This shared gallery link is no longer available", code="GALLERY_NOT_FOUND", status=404) from exc
+
+    if scope != "full":
+        raise AppError("This shared gallery link is no longer available", code="GALLERY_NOT_FOUND", status=404)
+
+    expected_token = _create_event_gallery_token(event_id=event_id)
+    _, expected_signature = expected_token.split(".", 1)
+    expected_signature_bytes = _urlsafe_b64decode(expected_signature)
+    if not hmac.compare_digest(supplied_signature, expected_signature_bytes):
+        raise AppError("This shared gallery link is no longer available", code="GALLERY_NOT_FOUND", status=404)
+
+    return event_id
 
 
 def _urlsafe_b64encode(value: bytes) -> str:

@@ -421,6 +421,13 @@ export async function getDemoApiResponse<T>(
     } satisfies ShareGalleryTokenResponse as T;
   }
 
+  if (path === "/api/event-gallery-tokens") {
+    return {
+      token: "demo-event-gallery-token",
+      url: `${window.location.origin}/event-gallery/demo-event-gallery-token`,
+    } satisfies ShareGalleryTokenResponse as T;
+  }
+
   if (/^\/api\/gallery\/[^/]+$/.test(path)) {
     return {
       event: {
@@ -434,6 +441,23 @@ export async function getDemoApiResponse<T>(
       },
       photos: demoPhotos.slice(0, 2),
       downloadAllUrl: demoPhotos[0]?.cloudinaryUrl,
+    } satisfies GalleryResponse as T;
+  }
+
+  if (/^\/api\/event-gallery\/[^/]+$/.test(path)) {
+    return {
+      event: {
+        id: demoEvent.id,
+        name: demoEvent.name,
+        date: demoEvent.date,
+      },
+      sharedBy: {
+        id: demoEvent.creator.id,
+        name: demoEvent.creator.name,
+        avatarUrl: demoEvent.creator.avatarUrl,
+      },
+      photos: demoPhotos,
+      downloadAllUrl: undefined,
     } satisfies GalleryResponse as T;
   }
 

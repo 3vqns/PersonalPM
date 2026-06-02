@@ -2,7 +2,9 @@
 
 ## End Goal
 
-Build a product that allows users to register their face to their account once, create and host events, assign event-specific upload permissions, join events through QR check-in or organizer assignment, and automatically receive access to the professional photos they appear in whenever event photos are uploaded.
+Build a product that allows users to register their face to their account once, create and host events, assign event-specific upload permissions, join events through signed-in QR check-in or organizer assignment, and automatically receive access to the professional photos they appear in whenever event photos are uploaded.
+
+Public sharing is split from registration. Personal Gallery Share exposes only the sharer's matched photos, Full Gallery Share exposes the event photo gallery, and Join Event is the only QR/link flow that changes membership or creates private-gallery access requests.
 
 ## Core Moving Parts
 
