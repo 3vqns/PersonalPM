@@ -591,7 +591,12 @@ describe("EventGalleryPage", () => {
       }
 
       if (path === "/api/events/event-1/join") {
-        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+        return {
+          eventId: "event-1",
+          alreadyJoined: false,
+          role: "member",
+          galleryAccessStatus: "approved",
+        };
       }
 
       if (path === "/api/events/event-1/photos") {

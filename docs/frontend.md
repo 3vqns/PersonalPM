@@ -27,7 +27,7 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 ## Current Private Gallery Access Behavior
 
 - Private gallery mode is event-scoped. When enabled, only the creator, admins, and approved gallery-access users can read gallery photos.
-- Signed-in members who are not approved see a private gallery request panel instead of photo grids.
+- Signed-in users who scan a private-gallery join QR receive a request-sent screen and do not see the event on their dashboard until an owner or admin approves them.
 - Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
 - Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
 - Event gallery share links and QR codes do not use join tokens. Personal Gallery Share uses `/gallery/{token}` and Full Gallery Share uses `/event-gallery/{token}` so signed-in and signed-out visitors can view the shared photos without changing event membership.

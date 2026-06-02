@@ -93,6 +93,7 @@ export interface EventJoinResponse {
   eventId: string;
   alreadyJoined: boolean;
   role: EventRole;
+  galleryAccessStatus: GalleryAccessStatus;
 }
 
 export interface Photo {
