@@ -28,7 +28,7 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - Signed-in members who are not approved see a private gallery request panel instead of photo grids.
 - Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
 - Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
-- Join links and QR codes load a lightweight invite preview before public photos. Private-gallery invites show the auth/request-access flow without requiring the public gallery endpoint to succeed first.
+- Join links and QR codes load a lightweight invite preview before public photos. Public-gallery invites show the public photos to signed-in and signed-out visitors even when the signed-in user is not registered for the event yet; signed-in visitors are also registered in the background so scans still add them to the event. Private-gallery invites show the auth/request-access flow without requiring the public gallery endpoint to succeed first.
 
 ## Remaining Backend Integration Cleanup
 

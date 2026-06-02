@@ -89,6 +89,12 @@ export interface PublicEventGalleryResponse {
   photos: Photo[];
 }
 
+export interface EventJoinResponse {
+  eventId: string;
+  alreadyJoined: boolean;
+  role: EventRole;
+}
+
 export interface Photo {
   id: string;
   cloudinaryUrl: string;

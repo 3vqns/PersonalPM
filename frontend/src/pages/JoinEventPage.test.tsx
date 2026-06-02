@@ -114,6 +114,10 @@ describe("JoinEventPage", () => {
         };
       }
 
+      if (path === "/api/events/event-1/join") {
+        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+      }
+
       throw new Error(`Unexpected path: ${path}`);
     });
 
@@ -130,7 +134,7 @@ describe("JoinEventPage", () => {
     expect(screen.queryByText("Or with email")).not.toBeInTheDocument();
   });
 
-  it("auto-joins the event when an authenticated user opens the invite link", async () => {
+  it("shows the public gallery to signed-in users who are not registered for the event", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -158,11 +162,37 @@ describe("JoinEventPage", () => {
           status: "active",
           joinToken: "demo-token",
           alreadyJoined: false,
+          privateGallery: false,
+        };
+      }
+
+      if (path === "/api/events/join/demo-token/gallery") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Demo Event",
+            date: "2026-06-21",
+            hostName: "Avery",
+            photoCount: 1,
+            memberCount: 9,
+            status: "active",
+            joinToken: "demo-token",
+            privateGallery: false,
+          },
+          photos: [
+            {
+              id: "photo-1",
+              cloudinaryUrl: "https://example.com/photo.jpg",
+              thumbnailUrl: "https://example.com/photo-thumb.jpg",
+              uploadedAt: "2026-06-21T00:00:00Z",
+              faceCount: 1,
+            },
+          ],
         };
       }
 
       if (path === "/api/events/event-1/join") {
-        return {};
+        return { eventId: "event-1", alreadyJoined: false, role: "member" };
       }
 
       throw new Error(`Unexpected path: ${path}`);
@@ -172,18 +202,20 @@ describe("JoinEventPage", () => {
       <MemoryRouter initialEntries={["/join/demo-token"]}>
         <Routes>
           <Route path="/join/:token" element={<JoinEventPage />} />
-          <Route path="/event/:id" element={<div>Joined gallery</div>} />
         </Routes>
       </MemoryRouter>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Joined gallery")).toBeInTheDocument();
-    });
+    expect(await screen.findByText("Demo Event")).toBeInTheDocument();
+    expect(screen.getByAltText("Event photo thumbnail")).toBeInTheDocument();
+    expect(screen.queryByText(/sign in to see photos/i)).not.toBeInTheDocument();
 
-    expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
-      method: "POST",
+    await waitFor(() => {
+      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
+        method: "POST",
+      });
     });
+    expect(await screen.findByText("You are registered for this event.")).toBeInTheDocument();
   });
 
   it("shows the empty public gallery state to anonymous visitors", async () => {
@@ -289,6 +321,62 @@ describe("JoinEventPage", () => {
     expect(await screen.findByText("Private Event")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
     expect(screen.queryByText("No photos uploaded yet")).not.toBeInTheDocument();
+  });
+
+  it("registers signed-in users from private gallery links before opening the event", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: {
+        id: "user-1",
+        email: "guest@example.com",
+        name: "Jordan",
+        hasFaceProfile: false,
+      },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token") {
+        return {
+          id: "event-1",
+          name: "Private Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 42,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          alreadyJoined: false,
+          privateGallery: true,
+        };
+      }
+
+      if (path === "/api/events/event-1/join") {
+        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/join/demo-token"]}>
+        <Routes>
+          <Route path="/join/:token" element={<JoinEventPage />} />
+          <Route path="/event/:eventId" element={<p>Joined private gallery</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
+        method: "POST",
+      });
+    });
+    expect(await screen.findByText("Joined private gallery")).toBeInTheDocument();
   });
 
   it("does not start Google auth while the public gallery is directly available", async () => {
