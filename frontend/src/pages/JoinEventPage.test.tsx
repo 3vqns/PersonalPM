@@ -11,6 +11,37 @@ vi.mock("../hooks/useAuth", () => ({
 }));
 
 vi.mock("../lib/api", () => ({
+  ApiError: class ApiError extends Error {
+    status: number;
+    code?: string;
+    details?: unknown;
+    requestId?: string;
+    path: string;
+
+    constructor({
+      message,
+      status,
+      code,
+      details,
+      requestId,
+      path,
+    }: {
+      message: string;
+      status: number;
+      code?: string;
+      details?: unknown;
+      requestId?: string;
+      path: string;
+    }) {
+      super(message);
+      this.name = "ApiError";
+      this.status = status;
+      this.code = code;
+      this.details = details;
+      this.requestId = requestId;
+      this.path = path;
+    }
+  },
   apiFetch: vi.fn(),
 }));
 
@@ -45,6 +76,20 @@ describe("JoinEventPage", () => {
     });
 
     mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token") {
+        return {
+          id: "event-1",
+          name: "Demo Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 42,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          privateGallery: false,
+        };
+      }
+
       if (path === "/api/events/join/demo-token/gallery") {
         return {
           event: {
@@ -153,6 +198,20 @@ describe("JoinEventPage", () => {
     });
 
     mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token") {
+        return {
+          id: "event-1",
+          name: "Demo Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 42,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          privateGallery: false,
+        };
+      }
+
       if (path === "/api/events/join/demo-token/gallery") {
         return {
           event: {
@@ -202,20 +261,17 @@ describe("JoinEventPage", () => {
     });
 
     mockedApiFetch.mockImplementation(async (path: string) => {
-      if (path === "/api/events/join/demo-token/gallery") {
+      if (path === "/api/events/join/demo-token") {
         return {
-          event: {
-            id: "event-1",
-            name: "Private Event",
-            date: "2026-06-21",
-            hostName: "Avery",
-            photoCount: 42,
-            memberCount: 9,
-            status: "active",
-            joinToken: "demo-token",
-            privateGallery: true,
-          },
-          photos: [],
+          id: "event-1",
+          name: "Private Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 42,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          privateGallery: true,
         };
       }
 
@@ -247,6 +303,20 @@ describe("JoinEventPage", () => {
     });
     mockedGoogleSignIn.mockResolvedValue(undefined);
     mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token") {
+        return {
+          id: "event-1",
+          name: "Demo Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 42,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          privateGallery: false,
+        };
+      }
+
       if (path === "/api/events/join/demo-token/gallery") {
         return {
           event: {
@@ -277,5 +347,44 @@ describe("JoinEventPage", () => {
     expect(await screen.findByText("Demo Event")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /join with google/i })).not.toBeInTheDocument();
     expect(mockedGoogleSignIn).not.toHaveBeenCalled();
+  });
+
+  it("shows invite debug details when preview loading fails", async () => {
+    const { ApiError } = await import("../lib/api");
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: null,
+      user: null,
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+    mockedApiFetch.mockRejectedValue(
+      new ApiError({
+        message: "This invite link is no longer available",
+        status: 404,
+        code: "INVITE_NOT_FOUND",
+        requestId: "request-1",
+        path: "/api/events/join/bad-token",
+        details: { tokenFingerprint: "abc123", tokenLength: 9 },
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/join/bad-token"]}>
+        <Routes>
+          <Route path="/join/:token" element={<JoinEventPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Invite unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Debug details")).toBeInTheDocument();
+    expect(screen.getByText(/path: \/api\/events\/join\/bad-token/i)).toBeInTheDocument();
+    expect(screen.getByText(/status: 404/i)).toBeInTheDocument();
+    expect(screen.getByText(/code: INVITE_NOT_FOUND/i)).toBeInTheDocument();
+    expect(screen.getByText(/request id: request-1/i)).toBeInTheDocument();
+    expect(screen.getByText(/tokenFingerprint/i)).toBeInTheDocument();
   });
 });

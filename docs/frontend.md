@@ -9,7 +9,7 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - [frontend/src/lib/supabase.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/supabase.ts): Initializes the Supabase browser auth client from Vite environment variables.
 - [frontend/src/lib/authSession.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/authSession.ts): Reads Supabase's persisted browser session, avoids repeated `getSession()` calls for healthy tokens, and falls back to cached valid credentials if a session check times out.
 - [frontend/src/providers/AuthProvider.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/providers/AuthProvider.tsx): Tracks the current session, hydrates the visible user from a cached Supabase session on refresh, and enriches account state through `GET /api/account`.
-- [frontend/src/lib/api.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/api.ts): Central request layer. It attaches the current Supabase access token and sends non-demo product traffic to the backend API through `VITE_API_BASE_URL`.
+- [frontend/src/lib/api.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/api.ts): Central request layer. It attaches the current Supabase access token and sends non-demo product traffic to the backend API through `VITE_API_BASE_URL`. Optional-auth GET requests retry anonymously after a stale-token `401`, and failed requests surface `ApiError` metadata for support debugging.
 - [frontend/src/pages](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages): Route-level UI for signup, login, dashboard, event gallery, event settings, join flow, and account settings.
 - [frontend/src/components](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components): Reusable UI building blocks such as navigation, upload modal, share modal, photo grids, and route guards.
 
@@ -28,6 +28,7 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - Signed-in members who are not approved see a private gallery request panel instead of photo grids.
 - Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
 - Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
+- Join links and QR codes load a lightweight invite preview before public photos. Private-gallery invites show the auth/request-access flow without requiring the public gallery endpoint to succeed first.
 
 ## Remaining Backend Integration Cleanup
 

@@ -85,9 +85,10 @@ const demoPhotos: Photo[] = [
 const demoEvent: EventDetail = {
   id: "demo-event",
   name: "Spring Gala",
-  description: "A private gallery for a PictureMe demo event.",
+  description:
+    "A private gallery for a PictureMe demo event with ceremony highlights, guest portraits, candid reception moments, and sponsor coverage collected throughout the evening.",
   date: "2026-05-10",
-  location: "TBD",
+  location: "Downtown conference center",
   expiresAt: "2026-06-09",
   status: "active",
   privateGallery: false,
@@ -325,7 +326,7 @@ export async function getDemoApiResponse<T>(
           role: "creator",
           joinedAt: "2026-05-10T00:00:00.000Z",
           kind: "member",
-          uploadCount: 1,
+          uploadCount: 7,
           galleryAccessStatus: "owner",
         },
         {
@@ -335,14 +336,14 @@ export async function getDemoApiResponse<T>(
           role: "admin",
           joinedAt: "2026-05-10T00:00:00.000Z",
           kind: "member",
-          uploadCount: 1,
+          uploadCount: 4,
           galleryAccessStatus: "approved",
         },
         {
           id: "anonymous-1",
           name: "Casey Guest",
           kind: "anonymous",
-          uploadCount: 1,
+          uploadCount: 2,
         },
       ],
     } satisfies EventPeopleResponse as T;

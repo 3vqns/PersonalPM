@@ -26,6 +26,8 @@ import { supabase } from "../lib/supabase";
 import type {
   AllPhotosResponse,
   EventDetail,
+  EventPeopleResponse,
+  EventPerson,
   MatchedPhoto,
   MyPhotosResponse,
   Photo,
@@ -42,6 +44,7 @@ export function EventGalleryPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [allPhotos, setAllPhotos] = useState<Photo[]>([]);
   const [myPhotos, setMyPhotos] = useState<MatchedPhoto[]>([]);
+  const [topUploaders, setTopUploaders] = useState<EventPerson[]>([]);
   const [hasFaceProfile, setHasFaceProfile] = useState(true);
   const [activeTab, setActiveTab] = useState<"my" | "all">("my");
   const [loading, setLoading] = useState(true);
@@ -82,6 +85,15 @@ export function EventGalleryPage() {
     }
   }, [id]);
 
+  const loadTopUploaders = useCallback(async () => {
+    try {
+      const response = await apiFetch<EventPeopleResponse>(`/api/events/${id}/people`);
+      setTopUploaders(getTopUploaders(response.people));
+    } catch {
+      setTopUploaders([]);
+    }
+  }, [id]);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -91,9 +103,10 @@ export function EventGalleryPage() {
       const eventResponse = await loadEventWithAccessRepair(id);
       setEvent(eventResponse);
       if (canViewGallery(eventResponse)) {
-        const [allPhotosResult, myPhotosResult] = await Promise.allSettled([
+        const [allPhotosResult, myPhotosResult, peopleResult] = await Promise.allSettled([
           apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`),
           apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`),
+          apiFetch<EventPeopleResponse>(`/api/events/${id}/people`),
         ]);
         const galleryMessages: string[] = [];
 
@@ -113,12 +126,19 @@ export function EventGalleryPage() {
           galleryMessages.push(getGalleryLoadMessage(myPhotosResult.reason));
         }
 
+        if (peopleResult.status === "fulfilled") {
+          setTopUploaders(getTopUploaders(peopleResult.value.people));
+        } else {
+          setTopUploaders([]);
+        }
+
         if (galleryMessages.length) {
           setGalleryError(galleryMessages[0]);
         }
       } else {
         setAllPhotos([]);
         setMyPhotos([]);
+        setTopUploaders([]);
         setHasFaceProfile(true);
       }
     } catch (requestError) {
@@ -164,6 +184,7 @@ export function EventGalleryPage() {
             return [incoming, ...current];
           });
           void loadEvent();
+          void loadTopUploaders();
         },
       )
       .on(
@@ -186,6 +207,7 @@ export function EventGalleryPage() {
           setAllPhotos((current) => current.filter((photo) => photo.id !== deletedId));
           setMyPhotos((current) => current.filter((photo) => photo.id !== deletedId));
           void loadEvent();
+          void loadTopUploaders();
         },
       )
       .subscribe();
@@ -204,6 +226,7 @@ export function EventGalleryPage() {
             () => {
               void loadMyPhotos();
               void loadEvent();
+              void loadTopUploaders();
             },
           )
           .subscribe()
@@ -215,7 +238,7 @@ export function EventGalleryPage() {
         void supabase.removeChannel(matchChannel);
       }
     };
-  }, [id, isDemo, loadEvent, loadMyPhotos, user]);
+  }, [id, isDemo, loadEvent, loadMyPhotos, loadTopUploaders, user]);
 
   const galleryPhotos = lightboxSource === "my" ? myPhotos : allPhotos;
   const showDenied = searchParams.get("denied") === "1";
@@ -385,15 +408,15 @@ export function EventGalleryPage() {
       ) : null}
 
       <section className="surface-card space-y-5 p-6">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.62fr)] lg:items-start">
+          <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
               Event gallery
             </p>
             <h1 className="text-4xl text-ink">{event.name}</h1>
             <p className="mt-2 text-sm text-slate">{formatDate(event.date)}</p>
             {event.description ? (
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate">
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate">
                 {event.description}
               </p>
             ) : null}
@@ -402,35 +425,38 @@ export function EventGalleryPage() {
               {event.location || "TBD"}
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link className="secondary-button" to={`/event/${id}/people`}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              People
-            </Link>
-            {event.role === "creator" || event.role === "admin" ? (
-              <Link className="secondary-button" to={`/event/${id}/settings`}>
-                <Settings className="mr-2 h-4 w-4" />
-                Event settings
+          <div className="flex min-h-full flex-col gap-4 lg:items-end">
+            <div className="flex flex-wrap gap-3 lg:justify-end">
+              <Link className="secondary-button" to={`/event/${id}/people`}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                People
               </Link>
-            ) : null}
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setShareOpen(true)}
-            >
-              <Share2 className="mr-2 h-4 w-4" />
-              Share
-            </button>
-            {event.role === "creator" || event.role === "admin" || event.allowAnyoneUpload ? (
+              {event.role === "creator" || event.role === "admin" ? (
+                <Link className="secondary-button" to={`/event/${id}/settings`}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Event settings
+                </Link>
+              ) : null}
               <button
                 type="button"
-                className="primary-button"
-                onClick={() => setUploadOpen(true)}
+                className="secondary-button"
+                onClick={() => setShareOpen(true)}
               >
-                <Upload className="mr-2 h-4 w-4" />
-                Upload photos
+                <Share2 className="mr-2 h-4 w-4" />
+                Share
               </button>
-            ) : null}
+              {event.role === "creator" || event.role === "admin" || event.allowAnyoneUpload ? (
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => setUploadOpen(true)}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload photos
+                </button>
+              ) : null}
+            </div>
+            <TopUploadersPanel uploaders={topUploaders} />
           </div>
         </div>
 
@@ -544,6 +570,69 @@ export function EventGalleryPage() {
   );
 }
 
+function TopUploadersPanel({ uploaders }: { uploaders: EventPerson[] }) {
+  if (uploaders.length === 0) {
+    return null;
+  }
+
+  const displayClass =
+    uploaders.length === 1
+      ? "mx-auto max-w-[240px]"
+      : uploaders.length === 2
+        ? "mx-auto grid-cols-2 max-w-[400px]"
+        : "grid-cols-3";
+  const avatarClass =
+    uploaders.length === 1
+      ? "h-20 w-20 text-xl lg:h-24 lg:w-24"
+      : uploaders.length === 2
+        ? "h-16 w-16 text-lg lg:h-20 lg:w-20"
+        : "h-14 w-14 text-base lg:h-16 lg:w-16";
+
+  return (
+    <div className="w-full rounded-[28px] border border-seafoam-100 bg-ivory/70 p-5 lg:min-h-[154px] lg:max-w-[560px]">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-seafoam-500">
+          Top uploaders
+        </p>
+        <p className="text-xs text-slate">
+          {uploaders.length === 1 ? "1 person" : `${uploaders.length} people`}
+        </p>
+      </div>
+      <div className={cn("grid w-full items-center gap-4", displayClass)}>
+        {uploaders.map((uploader, index) => (
+          <div key={uploader.id} className="flex min-w-0 flex-col items-center text-center">
+            <div
+              className={cn(
+                "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-seafoam-100 font-semibold text-ink ring-2 ring-white",
+                avatarClass,
+              )}
+            >
+              {uploader.avatarUrl ? (
+                <img
+                  src={uploader.avatarUrl}
+                  alt={uploader.name}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span>{getInitials(uploader.name)}</span>
+              )}
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-ink px-1 text-[10px] font-semibold text-white ring-2 ring-white">
+                {index + 1}
+              </span>
+            </div>
+            <p className="mt-2 w-full truncate text-sm font-semibold text-ink">
+              {uploader.kind === "anonymous" ? `${uploader.name} (anonymous)` : uploader.name}
+            </p>
+            <p className="text-xs text-slate">
+              {uploader.uploadCount} upload{uploader.uploadCount === 1 ? "" : "s"}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function canViewGallery(event: EventDetail) {
   return (
     !event.privateGallery ||
@@ -580,4 +669,22 @@ function getGalleryLoadMessage(error: unknown) {
     return error.message;
   }
   return "Some gallery photos could not load. Try again.";
+}
+
+function getTopUploaders(people: EventPerson[]) {
+  return [...people]
+    .filter((person) => person.uploadCount > 0)
+    .sort((a, b) => b.uploadCount - a.uploadCount || a.name.localeCompare(b.name))
+    .slice(0, 3);
+}
+
+function getInitials(name: string) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
+  return initials || "?";
 }
