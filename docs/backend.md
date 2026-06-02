@@ -28,6 +28,7 @@ The backend in [backend](/Users/tervin23/Documents/AG/PersonalPM/backend) is the
 - The frontend should always provide `VITE_API_BASE_URL` outside demo mode so authenticated screens go through the backend contract.
 - The frontend should forward the Supabase access token as `Authorization: Bearer <token>` and should not send service-role or internal secrets.
 - Successful and failed API responses may include `X-Request-ID`; surface that in support/debug tooling when possible.
+- Invite-token lookup failures include a safe token fingerprint and token length in error details, and backend logs include the same fingerprint so frontend reports can be correlated without exposing raw invite tokens.
 - Multipart routes currently expected by the backend:
   - `POST /api/account/face-profile`: `selfies` or `face` fields with 3 to 5 images
   - `POST /api/events`: form fields for `name`, `date`, optional `description`

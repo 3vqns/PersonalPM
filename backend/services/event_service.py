@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from hashlib import sha256
 from datetime import date, datetime, timezone
 
 from fastapi import BackgroundTasks, UploadFile
@@ -688,15 +689,36 @@ def _get_event_or_404(event_id: str) -> EventRecord:
 
 
 def _get_event_by_join_token(token: str) -> EventRecord:
+    fingerprint = _join_token_fingerprint(token)
     try:
         response = get_supabase_admin_client().table("events").select(_EVENT_SELECT_COLUMNS).eq("join_token", token).maybe_single().execute()
     except Exception as exc:
-        raise AppError("PictureMe could not load this event invite", code="EVENT_FETCH_FAILED", status=500) from exc
+        logger.warning(
+            "Failed to load invite preview for token fingerprint %s",
+            fingerprint,
+            exc_info=exc,
+        )
+        raise AppError(
+            "PictureMe could not load this event invite",
+            code="EVENT_FETCH_FAILED",
+            status=500,
+            details={"tokenFingerprint": fingerprint, "tokenLength": len(token)},
+        ) from exc
 
     if not response.data:
-        raise AppError("This invite link is no longer available", code="INVITE_NOT_FOUND", status=404)
+        logger.warning("Invite token not found for fingerprint %s", fingerprint)
+        raise AppError(
+            "This invite link is no longer available",
+            code="INVITE_NOT_FOUND",
+            status=404,
+            details={"tokenFingerprint": fingerprint, "tokenLength": len(token)},
+        )
 
     return EventRecord.model_validate(response.data)
+
+
+def _join_token_fingerprint(token: str) -> str:
+    return sha256(token.encode("utf-8")).hexdigest()[:12]
 
 
 def _list_events_by_creator(user_id: str) -> list[EventRecord]:

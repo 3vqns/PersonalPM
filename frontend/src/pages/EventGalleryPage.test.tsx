@@ -369,6 +369,82 @@ describe("EventGalleryPage", () => {
     );
   });
 
+  it("shows the top three uploaders by upload count", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: { id: "user-1", email: "me@example.com", name: "Jordan", hasFaceProfile: true },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/event-1") {
+        return {
+          id: "event-1",
+          name: "Launch Party",
+          date: "2026-05-10",
+          status: "active",
+          joinToken: "join-token",
+          role: "member",
+          creator: { id: "creator-1", name: "Taylor" },
+          counts: { allPhotos: 7, myPhotos: 1, members: 5 },
+        };
+      }
+
+      if (path === "/api/events/event-1/photos") {
+        return { photos: [] };
+      }
+
+      if (path === "/api/events/event-1/my-photos") {
+        return {
+          photos: [],
+          hasFaceProfile: true,
+        };
+      }
+
+      if (path === "/api/events/event-1/people") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Launch Party",
+            date: "2026-05-10",
+            status: "active",
+            joinToken: "join-token",
+            role: "member",
+            creator: { id: "creator-1", name: "Taylor" },
+            counts: { allPhotos: 7, myPhotos: 1, members: 5 },
+          },
+          people: [
+            { id: "uploader-1", name: "Avery Chen", kind: "member", uploadCount: 12 },
+            { id: "uploader-2", name: "Jordan Lee", kind: "member", uploadCount: 7 },
+            { id: "uploader-3", name: "Casey Guest", kind: "anonymous", uploadCount: 3 },
+            { id: "uploader-4", name: "No Photos", kind: "member", uploadCount: 0 },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1"]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventGalleryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Top uploaders")).toBeInTheDocument();
+    expect(screen.getByText("Avery Chen")).toBeInTheDocument();
+    expect(screen.getByText("12 uploads")).toBeInTheDocument();
+    expect(screen.getByText("Jordan Lee")).toBeInTheDocument();
+    expect(screen.getByText("Casey Guest (anonymous)")).toBeInTheDocument();
+    expect(screen.queryByText("No Photos")).not.toBeInTheDocument();
+  });
+
   it("keeps the event gallery visible when one photo request fails", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,

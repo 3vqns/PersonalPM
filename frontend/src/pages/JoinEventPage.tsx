@@ -10,7 +10,7 @@ import { PhotoLightbox } from "../components/PhotoLightbox";
 import { Spinner } from "../components/Spinner";
 import { UploadModal } from "../components/UploadModal";
 import { useAuth } from "../hooks/useAuth";
-import { apiFetch } from "../lib/api";
+import { ApiError, apiFetch } from "../lib/api";
 import { formatDate, formatLongDate } from "../lib/date";
 import { submitFaceScan } from "../lib/faceScan";
 import { supabase } from "../lib/supabase";
@@ -37,6 +37,7 @@ export function JoinEventPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugError, setDebugError] = useState<ApiError | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Anonymous upload state
   const [namePromptOpen, setNamePromptOpen] = useState(false);
@@ -52,26 +53,28 @@ export function JoinEventPage() {
     async function loadPreview() {
       setLoading(true);
       try {
-        if (session) {
-          const response = await apiFetch<JoinPreview>(`/api/events/join/${token}`, {
-            auth: "optional",
-          });
-          setPreview(response);
-          setPublicGallery(null);
-        } else {
+        const invitePreview = await apiFetch<JoinPreview>(`/api/events/join/${token}`, {
+          auth: "optional",
+        });
+        setPreview(invitePreview);
+        setPublicGallery(null);
+
+        if (!session && !invitePreview.privateGallery) {
           const response = await apiFetch<PublicEventGalleryResponse>(`/api/events/join/${token}/gallery`, {
             auth: false,
           });
           setPreview(response.event);
-          setPublicGallery(response.event.privateGallery ? null : response);
+          setPublicGallery(response);
         }
         setError(null);
+        setDebugError(null);
       } catch (requestError) {
         setError(
           requestError instanceof Error
             ? requestError.message
             : "PictureMe could not load this event invite.",
         );
+        setDebugError(requestError instanceof ApiError ? requestError : null);
       } finally {
         setLoading(false);
       }
@@ -129,6 +132,7 @@ export function JoinEventPage() {
           ? requestError.message
           : "PictureMe could not join this event.",
       );
+      setDebugError(requestError instanceof ApiError ? requestError : null);
       throw requestError;
     } finally {
       setSubmitting(false);
@@ -218,6 +222,7 @@ export function JoinEventPage() {
             <p className="mt-2 text-sm leading-6 text-slate">
               {error ?? "This invite link is no longer available."}
             </p>
+            {debugError ? <InviteDebugDetails error={debugError} /> : null}
           </div>
         </div>
       </div>
@@ -592,5 +597,26 @@ export function JoinEventPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function InviteDebugDetails({ error }: { error: ApiError }) {
+  const debugLines = [
+    `path: ${error.path}`,
+    `status: ${error.status}`,
+    error.code ? `code: ${error.code}` : null,
+    error.requestId ? `request id: ${error.requestId}` : null,
+    error.details ? `details: ${JSON.stringify(error.details)}` : null,
+  ].filter(Boolean);
+
+  return (
+    <details className="mt-4 rounded-2xl bg-ivory/70 p-3 text-xs text-slate">
+      <summary className="cursor-pointer font-semibold text-ink">
+        Debug details
+      </summary>
+      <pre className="mt-2 whitespace-pre-wrap font-mono leading-5">
+        {debugLines.join("\n")}
+      </pre>
+    </details>
   );
 }
