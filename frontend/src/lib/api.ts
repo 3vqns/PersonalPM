@@ -9,6 +9,7 @@ interface ApiFetchOptions extends Omit<RequestInit, "body"> {
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
+const networkRetryDelayMs = 300;
 
 export async function apiFetch<T = unknown>(
   path: string,
@@ -40,7 +41,7 @@ export async function apiFetch<T = unknown>(
     }
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetchWithNetworkRetry(`${apiBaseUrl}${path}`, {
     ...requestInit,
     method,
     headers: requestHeaders,
@@ -56,6 +57,29 @@ export async function apiFetch<T = unknown>(
   }
 
   return response.json() as Promise<T>;
+}
+
+async function fetchWithNetworkRetry(url: string, request: RequestInit) {
+  try {
+    return await fetch(url, request);
+  } catch (error) {
+    if (request.method !== "GET" || !isTransientNetworkError(error)) {
+      throw error;
+    }
+    await wait(networkRetryDelayMs);
+    return fetch(url, request);
+  }
+}
+
+function isTransientNetworkError(error: unknown) {
+  return (
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed/i.test(error.message)
+  );
+}
+
+function wait(delayMs: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, delayMs));
 }
 
 function serializeBody(body: unknown, headers: Headers) {

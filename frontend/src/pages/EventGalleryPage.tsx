@@ -46,6 +46,7 @@ export function EventGalleryPage() {
   const [activeTab, setActiveTab] = useState<"my" | "all">("my");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
   const [lightboxSource, setLightboxSource] = useState<LightboxSource>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -61,31 +62,60 @@ export function EventGalleryPage() {
   }, [id]);
 
   const loadAllPhotos = useCallback(async () => {
-    const response = await apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`);
-    setAllPhotos(response.photos);
+    try {
+      const response = await apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`);
+      setAllPhotos(response.photos);
+      setGalleryError(null);
+    } catch (requestError) {
+      setGalleryError(getGalleryLoadMessage(requestError));
+    }
   }, [id]);
 
   const loadMyPhotos = useCallback(async () => {
-    const response = await apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`);
-    setMyPhotos(response.photos);
-    setHasFaceProfile(response.hasFaceProfile);
+    try {
+      const response = await apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`);
+      setMyPhotos(response.photos);
+      setHasFaceProfile(response.hasFaceProfile);
+      setGalleryError(null);
+    } catch (requestError) {
+      setGalleryError(getGalleryLoadMessage(requestError));
+    }
   }, [id]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setGalleryError(null);
 
     try {
       const eventResponse = await apiFetch<EventDetail>(`/api/events/${id}`);
       setEvent(eventResponse);
       if (canViewGallery(eventResponse)) {
-        const [allPhotosResponse, myPhotosResponse] = await Promise.all([
+        const [allPhotosResult, myPhotosResult] = await Promise.allSettled([
           apiFetch<AllPhotosResponse>(`/api/events/${id}/photos`),
           apiFetch<MyPhotosResponse>(`/api/events/${id}/my-photos`),
         ]);
-        setAllPhotos(allPhotosResponse.photos);
-        setMyPhotos(myPhotosResponse.photos);
-        setHasFaceProfile(myPhotosResponse.hasFaceProfile);
+        const galleryMessages: string[] = [];
+
+        if (allPhotosResult.status === "fulfilled") {
+          setAllPhotos(allPhotosResult.value.photos);
+        } else {
+          setAllPhotos([]);
+          galleryMessages.push(getGalleryLoadMessage(allPhotosResult.reason));
+        }
+
+        if (myPhotosResult.status === "fulfilled") {
+          setMyPhotos(myPhotosResult.value.photos);
+          setHasFaceProfile(myPhotosResult.value.hasFaceProfile);
+        } else {
+          setMyPhotos([]);
+          setHasFaceProfile(true);
+          galleryMessages.push(getGalleryLoadMessage(myPhotosResult.reason));
+        }
+
+        if (galleryMessages.length) {
+          setGalleryError(galleryMessages[0]);
+        }
       } else {
         setAllPhotos([]);
         setMyPhotos([]);
@@ -341,6 +371,19 @@ export function EventGalleryPage() {
         </div>
       ) : null}
 
+      {galleryError ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {galleryError}{" "}
+          <button
+            type="button"
+            className="font-semibold text-ink underline underline-offset-4"
+            onClick={() => void loadAll()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+
       <section className="surface-card space-y-5 p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -509,4 +552,11 @@ function canViewGallery(event: EventDetail) {
     event.role === "creator" ||
     event.role === "admin"
   );
+}
+
+function getGalleryLoadMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Some gallery photos could not load. Try again.";
 }
