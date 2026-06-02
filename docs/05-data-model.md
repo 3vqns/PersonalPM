@@ -122,8 +122,7 @@
 - **One user → one reusable face profile.** A user has 3–5 enrollment selfies stored privately in Supabase Storage and referenced by `face_profile_images`. If there are no rows, they effectively opted out.
 - **One event → one Rekognition collection.** All photos from an event are indexed into this collection.
 - **Anonymous upload is event-scoped and opt-in.** Events with `allow_anyone_upload` can accept uploads without an account, storing a typed `uploader_name` on the upload job.
-- **Private gallery access is event-scoped.** Events with `private_gallery` only expose photos to creators, admins, and users with an approved `event_gallery_access` row.
-- Public event members are also mirrored into `event_gallery_access` with `approved` status. This keeps access status consistent if a public event later becomes private and prevents registered members from reading as `none`.
+- **Private gallery access is event-scoped.** Events with `private_gallery` only expose photos to creators, admins, and users with an approved `event_gallery_access` row. Public events use `event_members` only; they do not depend on `event_gallery_access`.
 - **Photo uploader attribution is stored per photo.** `photos.uploader_name` keeps the display name shown in the lightbox, using the signed-in user's public profile name or the anonymous uploader's typed name. Historical photos are backfilled from `photos.uploaded_by → users.name` or `upload_job_files → upload_jobs.uploader_name` when that linkage exists.
 - **`user_photo_matches` is the core join table.** A row here means "this user appears in this photo." This powers the My Photos tab.
 - **`event_members.role`** controls upload access. `member` means view only. `admin` means upload photos. `creator` means full event control.

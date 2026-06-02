@@ -355,13 +355,6 @@ def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) ->
     event = _get_event_or_404(event_id)
     if not event.private_gallery:
         _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
-        if current_user.user_id != event.creator_id:
-            _upsert_gallery_access(
-                event_id=event.id,
-                user_id=current_user.user_id,
-                status="approved",
-                invited_by=event.creator_id,
-            )
         return GalleryAccessRequestResponse(status="approved")
     if current_user.user_id == event.creator_id:
         return GalleryAccessRequestResponse(status="owner")
@@ -377,16 +370,12 @@ def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) ->
         return GalleryAccessRequestResponse(status=existing_status)
 
     _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
-    try:
-        get_supabase_admin_client().table("event_gallery_access").insert(
-            {
-                "event_id": event.id,
-                "user_id": current_user.user_id,
-                "status": "pending",
-            }
-        ).execute()
-    except Exception as exc:
-        raise AppError("PictureMe could not request gallery access", code="ACCESS_REQUEST_FAILED", status=500) from exc
+    _upsert_gallery_access(
+        event_id=event.id,
+        user_id=current_user.user_id,
+        status="pending",
+        invited_by=event.creator_id,
+    )
 
     return GalleryAccessRequestResponse(status="pending")
 
@@ -577,14 +566,7 @@ def _join_event_record(
         _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         membership = _get_membership(event.id, current_user.user_id)
 
-    if not event.private_gallery:
-        _upsert_gallery_access(
-            event_id=event.id,
-            user_id=current_user.user_id,
-            status="approved",
-            invited_by=event.creator_id,
-        )
-    elif membership is None or membership.role != "admin":
+    if event.private_gallery and (membership is None or membership.role != "admin"):
         existing_status = _get_gallery_access_status(event.id, current_user.user_id)
         if existing_status is None:
             _upsert_gallery_access(
@@ -1004,8 +986,8 @@ def _get_public_gallery_access_status(event: EventRecord, user_id: str) -> Galle
     if user_id == event.creator_id:
         return "owner"
     membership = _get_membership(event.id, user_id)
-    if membership and not event.private_gallery:
-        return "approved"
+    if not event.private_gallery:
+        return "approved" if membership else "none"
     if membership and membership.role == "admin":
         return "approved"
     return _get_gallery_access_status(event.id, user_id) or "none"
@@ -1019,8 +1001,8 @@ def _get_effective_gallery_access_status(
     if user_id == event.creator_id:
         return "owner"
     membership = _get_membership(event.id, user_id)
-    if membership and not event.private_gallery:
-        return "approved"
+    if not event.private_gallery:
+        return "approved" if membership else "none"
     if membership and membership.role == "admin":
         return "approved"
     return access_by_user_id.get(user_id, "none")
