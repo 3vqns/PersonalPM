@@ -14,7 +14,7 @@ import { ApiError, apiFetch } from "../lib/api";
 import { formatDate, formatLongDate } from "../lib/date";
 import { submitFaceScan } from "../lib/faceScan";
 import { supabase } from "../lib/supabase";
-import type { JoinPreview, PublicEventGalleryResponse } from "../types";
+import type { EventJoinResponse, JoinPreview, PublicEventGalleryResponse } from "../types";
 
 export function JoinEventPage() {
   const { token = "" } = useParams();
@@ -38,6 +38,8 @@ export function JoinEventPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debugError, setDebugError] = useState<ApiError | null>(null);
+  const [registrationStatus, setRegistrationStatus] = useState<"idle" | "joining" | "joined" | "failed">("idle");
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Anonymous upload state
   const [namePromptOpen, setNamePromptOpen] = useState(false);
@@ -47,6 +49,8 @@ export function JoinEventPage() {
 
   useEffect(() => {
     autoJoinAttemptedRef.current = false;
+    setRegistrationStatus("idle");
+    setRegistrationError(null);
   }, [token]);
 
   useEffect(() => {
@@ -59,11 +63,15 @@ export function JoinEventPage() {
         setPreview(invitePreview);
         setPublicGallery(null);
 
-        if (!session && !invitePreview.privateGallery) {
+        if (!invitePreview.privateGallery) {
           const response = await apiFetch<PublicEventGalleryResponse>(`/api/events/join/${token}/gallery`, {
-            auth: false,
+            auth: "optional",
           });
-          setPreview(response.event);
+          setPreview({
+            ...response.event,
+            alreadyJoined: invitePreview.alreadyJoined ?? response.event.alreadyJoined,
+            galleryAccessStatus: invitePreview.galleryAccessStatus ?? response.event.galleryAccessStatus,
+          });
           setPublicGallery(response);
         }
         setError(null);
@@ -99,6 +107,42 @@ export function JoinEventPage() {
 
     autoJoinAttemptedRef.current = true;
 
+    if (publicGallery) {
+      if (preview.alreadyJoined) {
+        setRegistrationStatus("joined");
+        return;
+      }
+
+      setRegistrationStatus("joining");
+      setRegistrationError(null);
+      void apiFetch<EventJoinResponse>(`/api/events/${preview.id}/join`, {
+        method: "POST",
+      })
+        .then((joinResponse) => {
+          setRegistrationStatus("joined");
+          setPreview((current) =>
+            current && current.id === preview.id
+              ? {
+                  ...current,
+                  alreadyJoined: true,
+                  memberCount: joinResponse.alreadyJoined ? current.memberCount : current.memberCount + 1,
+                }
+              : current,
+          );
+        })
+        .catch((requestError) => {
+          autoJoinAttemptedRef.current = false;
+          setRegistrationStatus("failed");
+          setRegistrationError(
+            requestError instanceof Error
+              ? requestError.message
+              : "PictureMe could not register you for this event.",
+          );
+          setDebugError(requestError instanceof ApiError ? requestError : null);
+        });
+      return;
+    }
+
     if (preview.alreadyJoined) {
       navigate(`/event/${preview.id}`, { replace: true });
       return;
@@ -111,7 +155,7 @@ export function JoinEventPage() {
         autoJoinAttemptedRef.current = false;
       }
     })();
-  }, [authLoading, loading, navigate, phase, preview, session, submitting]);
+  }, [authLoading, loading, navigate, phase, preview, publicGallery, session, submitting]);
 
   async function handleJoin() {
     if (!preview) {
@@ -229,13 +273,23 @@ export function JoinEventPage() {
     );
   }
 
-  // Unauthenticated public gallery view — full-width layout, no cramped hero column
-  if (!session && publicGallery) {
+  // Public gallery invite view: full-width layout with registration handled separately.
+  if (publicGallery) {
     const allowUpload = Boolean(preview.allowAnyoneUpload);
 
     function handleAnonUploadClick() {
       setUploaderNameDraft("");
       setNamePromptOpen(true);
+    }
+
+    function handleUploadClick() {
+      if (session) {
+        setAnonymousUploaderName("");
+        setAnonUploadOpen(true);
+        return;
+      }
+
+      handleAnonUploadClick();
     }
 
     function handleNamePromptSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -325,23 +379,39 @@ export function JoinEventPage() {
           />
         ) : null}
 
-        {/* Soft CTA bar */}
-        <div className="rounded-[28px] bg-seafoam-50 px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
-          <p className="text-sm text-seafoam-700">
-            Sign in to see photos of yourself matched by face recognition.
-          </p>
-          <Link
-            to="/login"
-            className="secondary-button shrink-0 !text-seafoam-700 border-seafoam-200"
-            onClick={() => {
-              const returnPath = window.location.pathname + window.location.search;
-              localStorage.setItem('returnTo', returnPath);
-            }}
-          >
-            Sign in
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-        </div>
+        {!session ? (
+          <div className="rounded-[28px] bg-seafoam-50 px-5 py-3 flex items-center justify-between gap-4 flex-wrap">
+            <p className="text-sm text-seafoam-700">
+              Sign in to see photos of yourself matched by face recognition.
+            </p>
+            <Link
+              to="/login"
+              className="secondary-button shrink-0 !text-seafoam-700 border-seafoam-200"
+              onClick={() => {
+                const returnPath = window.location.pathname + window.location.search;
+                localStorage.setItem("returnTo", returnPath);
+              }}
+            >
+              Sign in
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </div>
+        ) : null}
+
+        {session ? (
+          <div className="rounded-[28px] bg-ivory/70 px-5 py-3 text-sm text-slate">
+            {registrationStatus === "joining" ? "Registering you for this event..." : null}
+            {registrationStatus === "joined" ? "You are registered for this event." : null}
+            {registrationStatus === "failed" ? (
+              <div className="space-y-2">
+                <p className="text-red-600">
+                  {registrationError ?? "PictureMe could not register you for this event."}
+                </p>
+                {debugError ? <InviteDebugDetails error={debugError} /> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <section className="surface-card space-y-5 p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -358,7 +428,7 @@ export function JoinEventPage() {
               <button
                 type="button"
                 className="primary-button shrink-0"
-                onClick={handleAnonUploadClick}
+                onClick={handleUploadClick}
               >
                 <Upload className="mr-2 h-4 w-4" />
                 Upload photos

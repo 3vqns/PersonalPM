@@ -121,12 +121,23 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
-    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _FakeClient())
+    client = _FakeClient()
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
 
     response = event_service.join_event(current_user, event_id=event.id, background_tasks=background_tasks)
 
     assert response.event_id == event.id
     assert response.already_joined is False
+    assert client.upserted_memberships == [
+        (
+            {
+                "event_id": event.id,
+                "user_id": current_user.user_id,
+                "role": "member",
+            },
+            "event_id,user_id",
+        )
+    ]
     assert background_tasks.tasks
     queued_func, _args, kwargs = background_tasks.tasks[0]
     assert queued_func is event_service.trigger_user_event_match
