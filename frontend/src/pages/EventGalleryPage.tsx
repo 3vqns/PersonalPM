@@ -12,7 +12,6 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { PhotoGrid } from "../components/PhotoGrid";
 import { PhotoLightbox } from "../components/PhotoLightbox";
-import { ShareEventPanel } from "../components/ShareEventPanel";
 import { ShareModal } from "../components/ShareModal";
 import { Spinner } from "../components/Spinner";
 import { UploadModal } from "../components/UploadModal";
@@ -170,8 +169,6 @@ export function EventGalleryPage() {
   }, [id, isDemo, loadEvent, loadMyPhotos, user]);
 
   const galleryPhotos = lightboxSource === "my" ? myPhotos : allPhotos;
-  const showCreatedPanel =
-    searchParams.get("created") === "1" && event?.role === "creator";
   const showDenied = searchParams.get("denied") === "1";
 
   useEffect(() => {
@@ -332,10 +329,6 @@ export function EventGalleryPage() {
             ) : null}
           </div>
         </div>
-
-        {showCreatedPanel ? (
-          <ShareEventPanel eventName={event.name} joinToken={event.joinToken} />
-        ) : null}
 
         <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

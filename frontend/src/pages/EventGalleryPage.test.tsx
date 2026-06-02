@@ -168,9 +168,10 @@ describe("EventGalleryPage", () => {
 
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^share$/i }));
+    await user.click(await screen.findByRole("button", { name: /share my photos/i }));
 
-    expect(await screen.findByText("Share your matched photos")).toBeInTheDocument();
-    expect(screen.getAllByText("Gallery link")).toHaveLength(2);
+    expect(await screen.findByText("Share your photos")).toBeInTheDocument();
+    expect(screen.getByText("Gallery link")).toBeInTheDocument();
     expect(screen.getByText("https://example.com/gallery/gallery-token")).toBeInTheDocument();
   });
 
@@ -249,12 +250,17 @@ describe("EventGalleryPage", () => {
 
     expect(await screen.findByText("Launch Party")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^share$/i }));
+    await user.click(await screen.findByRole("button", { name: /share full gallery/i }));
 
-    expect(await screen.findByText("Share the full event gallery")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /share full gallery/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
   });
 
-  it("renders the created event share panel for creators", async () => {
+  it("uses the share modal for newly created events", async () => {
+    const user = userEvent.setup();
+
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -301,7 +307,12 @@ describe("EventGalleryPage", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Share this event instantly")).toBeInTheDocument();
+    expect(await screen.findByText("Launch Party")).toBeInTheDocument();
+    expect(screen.queryByText("Share this event instantly")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^share$/i }));
+    await user.click(await screen.findByRole("button", { name: /share full gallery/i }));
+
     expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
   });
 });

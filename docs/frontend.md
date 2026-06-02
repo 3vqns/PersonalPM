@@ -11,7 +11,12 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - [frontend/src/providers/AuthProvider.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/providers/AuthProvider.tsx): Tracks the current session, hydrates the visible user from a cached Supabase session on refresh, and enriches account state through `GET /api/account`.
 - [frontend/src/lib/api.ts](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/lib/api.ts): Central request layer. It attaches the current Supabase access token and sends non-demo product traffic to the backend API through `VITE_API_BASE_URL`.
 - [frontend/src/pages](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages): Route-level UI for signup, login, dashboard, event gallery, event settings, join flow, and account settings.
-- [frontend/src/components](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components): Reusable UI building blocks such as navigation, upload modal, photo grids, and route guards.
+- [frontend/src/components](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components): Reusable UI building blocks such as navigation, upload modal, share modal, photo grids, and route guards.
+
+## Current Gallery And Upload Behavior
+
+- [frontend/src/pages/EventGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventGalleryPage.tsx): Uses one header Share button that opens a modal for personal gallery sharing or full gallery sharing. The old inline created-event share panel is intentionally not rendered on the gallery route.
+- [frontend/src/components/UploadModal.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/UploadModal.tsx): Shows the 100-photo batch cap and blocks over-limit selections before any upload request starts.
 
 ## Remaining Backend Integration Cleanup
 
