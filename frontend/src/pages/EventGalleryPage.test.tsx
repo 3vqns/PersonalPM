@@ -316,6 +316,59 @@ describe("EventGalleryPage", () => {
     expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
   });
 
+  it("shows the event settings link to admins", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: { id: "admin-1", email: "admin@example.com", name: "Admin", hasFaceProfile: true },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/event-1") {
+        return {
+          id: "event-1",
+          name: "Launch Party",
+          date: "2026-05-10",
+          status: "active",
+          joinToken: "join-token",
+          role: "admin",
+          creator: { id: "creator-1", name: "Taylor" },
+          counts: { allPhotos: 0, myPhotos: 0, members: 2 },
+        };
+      }
+
+      if (path === "/api/events/event-1/photos") {
+        return { photos: [] };
+      }
+
+      if (path === "/api/events/event-1/my-photos") {
+        return {
+          photos: [],
+          hasFaceProfile: true,
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1"]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventGalleryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("link", { name: /event settings/i })).toHaveAttribute(
+      "href",
+      "/event/event-1/settings",
+    );
+  });
+
   it("keeps the event gallery visible when one photo request fails", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,

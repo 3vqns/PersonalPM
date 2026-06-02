@@ -133,6 +133,128 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
     assert kwargs == {"user_id": current_user.user_id, "event_id": event.id, "reason": "event-join"}
 
 
+def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="user-1",
+        email="user@example.com",
+        access_token="token",
+        raw_user={"id": "user-1", "email": "user@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+        private_gallery=True,
+    )
+    inserted_access_rows: list[dict] = []
+    ensured_members: list[tuple[str, str]] = []
+
+    class _AccessTable:
+        def insert(self, payload):
+            inserted_access_rows.append(payload)
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data={"id": "access-1"})
+
+    class _AccessClient:
+        def table(self, name: str):
+            assert name == "event_gallery_access"
+            return _AccessTable()
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(
+        event_service,
+        "get_public_user_record",
+        lambda _current_user: PublicUserRecord(
+            id=current_user.user_id,
+            email=current_user.email or "",
+            name="User One",
+            avatar_url=None,
+            face_indexed_at=None,
+            rekognition_face_id=None,
+        ),
+    )
+    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
+    monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
+    monkeypatch.setattr(event_service, "_get_gallery_access_status", lambda _event_id, _user_id: None)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _AccessClient())
+
+    response = event_service.join_event(current_user, event_id=event.id, background_tasks=FakeBackgroundTasks())
+
+    assert response.role == "member"
+    assert ensured_members == [("event-1", "user-1")]
+    assert inserted_access_rows == [
+        {
+            "event_id": "event-1",
+            "user_id": "user-1",
+            "status": "pending",
+        }
+    ]
+
+
+def test_invite_gallery_access_by_email_adds_event_member(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="creator-1",
+        email="creator@example.com",
+        access_token="token",
+        raw_user={"id": "creator-1", "email": "creator@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+        private_gallery=True,
+    )
+    invited_user = PublicUserRecord(
+        id="user-2",
+        email="alex@example.com",
+        name="Alex",
+        avatar_url=None,
+        face_indexed_at=None,
+        rekognition_face_id=None,
+    )
+    ensured_members: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
+    monkeypatch.setattr(event_service, "_get_public_user_by_email", lambda _email: invited_user)
+    monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
+    monkeypatch.setattr(
+        event_service,
+        "_upsert_gallery_access",
+        lambda **_kwargs: {
+            "id": "access-1",
+            "status": "approved",
+            "requested_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
+            "approved_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
+        },
+    )
+
+    response = event_service.invite_gallery_access_by_email(
+        current_user,
+        event_id=event.id,
+        email="alex@example.com",
+    )
+
+    assert ensured_members == [("event-1", "user-2")]
+    assert response.status == "approved"
+
+
 def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",

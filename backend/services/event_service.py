@@ -180,9 +180,9 @@ def get_event_detail(current_user: AuthenticatedUser, *, event_id: str) -> Event
 
 
 def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: EventUpdateRequest) -> EventDetailResponse:
-    """Update event metadata. Only the creator may edit event settings."""
+    """Update event metadata. Event owners and admins may edit event settings."""
     event = _get_event_or_404(event_id)
-    _require_creator(current_user.user_id, event)
+    _require_event_manager(current_user.user_id, event)
 
     update_payload: dict[str, object] = {}
     if payload.name is not None:
@@ -319,6 +319,7 @@ def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) ->
     """Create or reuse a pending gallery access request for the current user."""
     event = _get_event_or_404(event_id)
     if not event.private_gallery:
+        _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         return GalleryAccessRequestResponse(status="approved")
     if current_user.user_id == event.creator_id:
         return GalleryAccessRequestResponse(status="owner")
@@ -329,8 +330,11 @@ def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) ->
 
     existing_status = _get_gallery_access_status(event.id, current_user.user_id)
     if existing_status:
+        if existing_status == "pending":
+            _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         return GalleryAccessRequestResponse(status=existing_status)
 
+    _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
     try:
         get_supabase_admin_client().table("event_gallery_access").insert(
             {
@@ -346,9 +350,9 @@ def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) ->
 
 
 def list_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> list[GalleryAccessResponse]:
-    """Return pending and approved private-gallery access rows. Creator only."""
+    """Return pending and approved private-gallery access rows for event managers."""
     event = _get_event_or_404(event_id)
-    _require_creator(current_user.user_id, event)
+    _require_event_manager(current_user.user_id, event)
     rows = _fetch_gallery_access_rows(event_id)
     users = {user.id: user for user in _get_public_users_by_ids([row["user_id"] for row in rows if row.get("user_id")])}
     response: list[GalleryAccessResponse] = []
@@ -374,13 +378,14 @@ def invite_gallery_access_by_email(
     event_id: str,
     email: str,
 ) -> GalleryAccessResponse:
-    """Approve gallery access for an existing PictureMe user by email."""
+    """Add an existing PictureMe user to the event and approve private gallery access."""
     event = _get_event_or_404(event_id)
-    _require_creator(current_user.user_id, event)
+    _require_event_manager(current_user.user_id, event)
     invited_user = _get_public_user_by_email(email.strip().lower())
     if invited_user.id == event.creator_id:
         raise AppError("The event creator already has gallery access", code="ACCESS_INVITE_INVALID", status=422)
 
+    _ensure_event_member(event_id=event.id, user_id=invited_user.id)
     row = _upsert_gallery_access(
         event_id=event.id,
         user_id=invited_user.id,
@@ -410,10 +415,12 @@ def update_gallery_access_status(
 ) -> GalleryAccessResponse:
     """Approve or move a private-gallery access row back to pending."""
     event = _get_event_or_404(event_id)
-    _require_creator(current_user.user_id, event)
+    _require_event_manager(current_user.user_id, event)
     if user_id == event.creator_id:
         raise AppError("The event creator access cannot be changed", code="ACCESS_CHANGE_FORBIDDEN", status=403)
     target_user = _get_public_user_by_id(user_id)
+    if status == "approved":
+        _ensure_event_member(event_id=event.id, user_id=user_id)
     row = _upsert_gallery_access(event_id=event.id, user_id=user_id, status=status, invited_by=current_user.user_id)
     return GalleryAccessResponse(
         id=str(row["id"]),
@@ -430,9 +437,9 @@ def update_gallery_access_status(
 
 
 def remove_gallery_access(current_user: AuthenticatedUser, *, event_id: str, user_id: str) -> dict[str, bool]:
-    """Remove one user's private-gallery access row. Creator only."""
+    """Remove one user's private-gallery access row. Event managers may do this."""
     event = _get_event_or_404(event_id)
-    _require_creator(current_user.user_id, event)
+    _require_event_manager(current_user.user_id, event)
     if user_id == event.creator_id:
         raise AppError("The event creator access cannot be removed", code="ACCESS_CHANGE_FORBIDDEN", status=403)
     try:
@@ -505,16 +512,22 @@ def join_event(
     already_joined = membership is not None
 
     if not already_joined:
-        try:
-            get_supabase_admin_client().table("event_members").insert(
-                {
-                    "event_id": event.id,
-                    "user_id": current_user.user_id,
-                    "role": "member",
-                }
-            ).execute()
-        except Exception as exc:
-            raise AppError("PictureMe could not join this event", code="EVENT_JOIN_FAILED", status=500) from exc
+        _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
+        membership = _get_membership(event.id, current_user.user_id)
+
+    if event.private_gallery and (membership is None or membership.role != "admin"):
+        existing_status = _get_gallery_access_status(event.id, current_user.user_id)
+        if existing_status is None:
+            try:
+                get_supabase_admin_client().table("event_gallery_access").insert(
+                    {
+                        "event_id": event.id,
+                        "user_id": current_user.user_id,
+                        "status": "pending",
+                    }
+                ).execute()
+            except Exception as exc:
+                raise AppError("PictureMe could not request gallery access", code="ACCESS_REQUEST_FAILED", status=500) from exc
 
     if public_user.has_face_profile:
         background_tasks.add_task(
@@ -745,6 +758,24 @@ def _membership_exists(event_id: str, user_id: str) -> bool:
     return _get_membership(event_id, user_id) is not None
 
 
+def _ensure_event_member(*, event_id: str, user_id: str, role: EventRole = "member") -> None:
+    existing_membership = _get_membership(event_id, user_id)
+    if existing_membership is not None:
+        return
+
+    try:
+        get_supabase_admin_client().table("event_members").upsert(
+            {
+                "event_id": event_id,
+                "user_id": user_id,
+                "role": role,
+            },
+            on_conflict="event_id,user_id",
+        ).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not add this event member", code="EVENT_JOIN_FAILED", status=500) from exc
+
+
 def _require_event_role(user_id: str, event: EventRecord) -> EventRole:
     if event.creator_id == user_id:
         return "creator"
@@ -758,6 +789,13 @@ def _require_event_role(user_id: str, event: EventRecord) -> EventRole:
 def _require_creator(user_id: str, event: EventRecord) -> None:
     if event.creator_id != user_id:
         raise AppError("Only the event creator can perform this action", code="FORBIDDEN", status=403)
+
+
+def _require_event_manager(user_id: str, event: EventRecord) -> EventRole:
+    role = _require_event_role(user_id, event)
+    if role not in {"creator", "admin"}:
+        raise AppError("Only event owners and admins can perform this action", code="FORBIDDEN", status=403)
+    return role
 
 
 def _get_event_roles(event_ids: list[str], user_id: str) -> dict[str, EventRole]:

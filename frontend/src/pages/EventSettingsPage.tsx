@@ -1,4 +1,4 @@
-import { AlertCircle, Crown, ShieldCheck, Trash2, User } from "lucide-react";
+import { AlertCircle, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
@@ -7,7 +7,7 @@ import { Spinner } from "../components/Spinner";
 import { cn } from "../lib/cn";
 import { apiFetch } from "../lib/api";
 import { formatDate } from "../lib/date";
-import type { EventDetail, EventMember } from "../types";
+import type { EventDetail } from "../types";
 
 const TAG_OPTIONS = [
   "Wedding",
@@ -22,7 +22,6 @@ export function EventSettingsPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [event, setEvent] = useState<EventDetail | null>(null);
-  const [members, setMembers] = useState<EventMember[]>([]);
   const [form, setForm] = useState({
     name: "",
     date: "",
@@ -44,18 +43,14 @@ export function EventSettingsPage() {
     async function loadSettings() {
       setLoading(true);
       try {
-        const [eventResponse, membersResponse] = await Promise.all([
-          apiFetch<EventDetail>(`/api/events/${id}`),
-          apiFetch<EventMember[]>(`/api/events/${id}/members`),
-        ]);
+        const eventResponse = await apiFetch<EventDetail>(`/api/events/${id}`);
 
-        if (eventResponse.role !== "creator") {
+        if (!["creator", "admin"].includes(eventResponse.role)) {
           navigate(`/event/${id}?denied=1`, { replace: true });
           return;
         }
 
         setEvent(eventResponse);
-        setMembers(membersResponse);
         // Separate stored tags into known options vs the "Other" write-in
         const knownOptions = TAG_OPTIONS.filter((o) => o !== "Other") as readonly string[];
         const storedTags = eventResponse.tags ?? [];
@@ -135,30 +130,6 @@ export function EventSettingsPage() {
       );
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleRoleToggle(member: EventMember) {
-    const nextRole = member.role === "admin" ? "member" : "admin";
-    const currentMembers = members;
-    setMembers((list) =>
-      list.map((item) =>
-        item.userId === member.userId ? { ...item, role: nextRole } : item,
-      ),
-    );
-
-    try {
-      await apiFetch(`/api/events/${id}/members/${member.userId}`, {
-        method: "PATCH",
-        body: { role: nextRole },
-      });
-    } catch (requestError) {
-      setMembers(currentMembers);
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "PictureMe could not update this role.",
-      );
     }
   }
 
@@ -427,73 +398,29 @@ export function EventSettingsPage() {
 
       <ShareEventPanel eventName={event.name} joinToken={event.joinToken} />
 
-      <section className="surface-card space-y-5 p-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-            Members
-          </p>
-          <h2 className="text-3xl text-ink">Access and upload roles</h2>
-        </div>
-        <div className="space-y-3">
-          {members.map((member) => {
-            const isCreator = member.userId === event.creator.id || member.role === "creator";
-            return (
-              <div
-                key={member.id}
-                className="flex flex-col gap-4 rounded-[28px] border border-ink/10 p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-medium text-ink">{member.name}</p>
-                  <p className="text-sm text-slate">{member.email}</p>
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <span className="inline-flex items-center gap-2 rounded-full bg-ivory px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate">
-                    {isCreator ? (
-                      <Crown className="h-3.5 w-3.5 text-amber-500" />
-                    ) : member.role === "admin" ? (
-                      <ShieldCheck className="h-3.5 w-3.5 text-seafoam-500" />
-                    ) : (
-                      <User className="h-3.5 w-3.5 text-slate" />
-                    )}
-                    {isCreator ? "Creator" : member.role}
-                  </span>
-                  {!isCreator ? (
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => void handleRoleToggle(member)}
-                    >
-                      {member.role === "admin" ? "Remove admin" : "Make admin"}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="surface-card border border-red-100 p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-red-500">
-              Danger zone
-            </p>
-            <h2 className="mt-2 text-2xl text-ink">Delete this event</h2>
-            <p className="mt-2 text-sm leading-6 text-slate">
-              Remove the event, member list, and gallery access for everyone.
-            </p>
+      {event.role === "creator" ? (
+        <section className="surface-card border border-red-100 p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-red-500">
+                Danger zone
+              </p>
+              <h2 className="mt-2 text-2xl text-ink">Delete this event</h2>
+              <p className="mt-2 text-sm leading-6 text-slate">
+                Remove the event, member list, and gallery access for everyone.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="secondary-button border-red-200 text-red-600 hover:bg-red-50"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete event
+            </button>
           </div>
-          <button
-            type="button"
-            className="secondary-button border-red-200 text-red-600 hover:bg-red-50"
-            onClick={() => setDeleteOpen(true)}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete event
-          </button>
-        </div>
-      </section>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -17,8 +17,8 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 
 - [frontend/src/pages/EventGalleryPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventGalleryPage.tsx): Shows event metadata, including the event description, and uses one header Share button that opens a modal for personal gallery sharing or full gallery sharing. The old inline created-event share panel is intentionally not rendered on the gallery route.
 - [frontend/src/components/EventCard.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/EventCard.tsx): Shows event details and the event location on dashboard cards instead of placeholder venue copy.
-- [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Lists signed-in event members, anonymous uploaders, and owner-managed private-gallery access rows.
-- [frontend/src/pages/EventSettingsPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventSettingsPage.tsx): Lets event creators update description, location, anonymous uploads, and private gallery access.
+- [frontend/src/pages/EventPeoplePage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventPeoplePage.tsx): Uses tabs for signed-in users, anonymous uploaders, and private-gallery access rows when private mode is enabled. Owners can promote or demote admins from the Users tab; owners and admins can approve, invite, or remove private-gallery access from the Private Access List tab.
+- [frontend/src/pages/EventSettingsPage.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/pages/EventSettingsPage.tsx): Lets event owners and admins update description, location, anonymous uploads, and private gallery mode. Only owners see the event deletion controls.
 - [frontend/src/components/PhotoLightbox.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/PhotoLightbox.tsx): Shows the display name of the person who uploaded a photo next to the lightbox Share button when uploader metadata exists.
 - [frontend/src/components/UploadModal.tsx](/Users/tervin23/Documents/AG/PersonalPM/frontend/src/components/UploadModal.tsx): Shows the 100-photo batch cap and blocks over-limit selections before any upload request starts.
 
@@ -26,7 +26,8 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 
 - Private gallery mode is event-scoped. When enabled, only the creator, admins, and approved gallery-access users can read gallery photos.
 - Signed-in members who are not approved see a private gallery request panel instead of photo grids.
-- Event creators can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
+- Owners and admins can add signed-up PictureMe users by email, approve pending access requests, and remove private gallery access from the people page.
+- Adding a signed-up user by email also adds that person to the event, so the join link or QR code is not required as a second step.
 
 ## Remaining Backend Integration Cleanup
 

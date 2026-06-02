@@ -16,8 +16,11 @@ import { formatDate } from "../lib/date";
 import type {
   EventPeopleResponse,
   EventPerson,
+  EventRole,
   GalleryAccessEntry,
 } from "../types";
+
+type PeopleTab = "users" | "anonymous" | "privateAccess";
 
 export function EventPeoplePage() {
   const { id = "" } = useParams();
@@ -28,6 +31,7 @@ export function EventPeoplePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<PeopleTab>("users");
 
   const event = peopleResponse?.event;
   const members = useMemo(
@@ -38,10 +42,29 @@ export function EventPeoplePage() {
     () => peopleResponse?.people.filter((person) => person.kind === "anonymous") ?? [],
     [peopleResponse],
   );
+  const canManagePrivateAccess = event?.role === "creator" || event?.role === "admin";
+  const canManageRoles = event?.role === "creator";
+  const tabs = useMemo(
+    () =>
+      [
+        { id: "users" as const, label: "Users", count: members.length },
+        { id: "anonymous" as const, label: "Anonymous Users", count: anonymousUploaders.length },
+        ...(event?.privateGallery && canManagePrivateAccess
+          ? [{ id: "privateAccess" as const, label: "Private Access List", count: accessRows.length }]
+          : []),
+      ],
+    [accessRows.length, anonymousUploaders.length, canManagePrivateAccess, event?.privateGallery, members.length],
+  );
 
   useEffect(() => {
     void loadPeople();
   }, [id]);
+
+  useEffect(() => {
+    if (!tabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab("users");
+    }
+  }, [activeTab, tabs]);
 
   async function loadPeople() {
     setLoading(true);
@@ -49,7 +72,10 @@ export function EventPeoplePage() {
     try {
       const response = await apiFetch<EventPeopleResponse>(`/api/events/${id}/people`);
       setPeopleResponse(response);
-      if (response.event.role === "creator") {
+      if (
+        response.event.privateGallery &&
+        (response.event.role === "creator" || response.event.role === "admin")
+      ) {
         const accessResponse = await apiFetch<GalleryAccessEntry[]>(
           `/api/events/${id}/gallery-access`,
         );
@@ -141,6 +167,39 @@ export function EventPeoplePage() {
     }
   }
 
+  async function handleRoleToggle(person: EventPerson) {
+    if (!person.role || person.role === "creator") {
+      return;
+    }
+
+    const nextRole: EventRole = person.role === "admin" ? "member" : "admin";
+    const currentResponse = peopleResponse;
+    setPeopleResponse((response) =>
+      response
+        ? {
+            ...response,
+            people: response.people.map((item) =>
+              item.id === person.id ? { ...item, role: nextRole } : item,
+            ),
+          }
+        : response,
+    );
+
+    try {
+      await apiFetch(`/api/events/${id}/members/${person.id}`, {
+        method: "PATCH",
+        body: { role: nextRole },
+      });
+    } catch (requestError) {
+      setPeopleResponse(currentResponse);
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "PictureMe could not update this role.",
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div className="page-shell flex min-h-[60vh] items-center justify-center">
@@ -192,119 +251,143 @@ export function EventPeoplePage() {
         </div>
       </section>
 
-      {event.role === "creator" ? (
-        <section className="surface-card space-y-5 p-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-              Gallery access
-            </p>
-            <h2 className="text-3xl text-ink">Private access list</h2>
-            <p className="mt-2 text-sm leading-6 text-slate">
-              Add signed-up PictureMe users by email, approve requests, or remove access.
-            </p>
-          </div>
-
-          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleInvite}>
-            <div className="field-shell flex-1">
-              <input
-                className="field-input"
-                type="email"
-                value={inviteEmail}
-                placeholder="person@example.com"
-                onChange={(inputEvent) => setInviteEmail(inputEvent.target.value)}
-              />
-            </div>
-            <button type="submit" className="primary-button" disabled={saving}>
-              <MailPlus className="mr-2 h-4 w-4" />
-              {saving ? "Adding..." : "Add access"}
-            </button>
-          </form>
-
-          <div className="space-y-3">
-            {accessRows.length ? (
-              accessRows.map((row) => (
-                <div
-                  key={row.id}
-                  className="flex flex-col gap-4 rounded-lg border border-ink/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+      <section className="surface-card space-y-5 p-6">
+        <div className="overflow-x-auto rounded-lg border border-ink/10 bg-ivory/60 p-1">
+          <div className="flex min-w-max">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`inline-flex items-center gap-2 rounded-md px-4 py-3 text-sm font-semibold transition ${
+                  activeTab === tab.id
+                    ? "bg-ink text-ivory shadow-sm"
+                    : "text-slate hover:bg-white"
+                }`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs ${
+                    activeTab === tab.id ? "bg-white/15 text-ivory" : "bg-white text-slate"
+                  }`}
                 >
-                  <div>
-                    <p className="font-medium text-ink">{row.user.name}</p>
-                    <p className="text-sm text-slate">{row.user.email}</p>
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <span className="rounded-full bg-ivory px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate">
-                      {row.status}
-                    </span>
-                    {row.status === "pending" ? (
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => void handleApprove(row)}
-                      >
-                        <Check className="mr-2 h-4 w-4" />
-                        Approve
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="secondary-button border-red-200 text-red-600 hover:bg-red-50"
-                      onClick={() => void handleRemoveAccess(row.user.id)}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="rounded-lg bg-ivory/70 p-4 text-sm text-slate">
-                No private-gallery access rows yet.
-              </p>
-            )}
-          </div>
-          {success ? <p className="text-sm text-seafoam-700">{success}</p> : null}
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        </section>
-      ) : null}
-
-      <section className="surface-card space-y-5 p-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-            Event list
-          </p>
-          <h2 className="text-3xl text-ink">Signed-in people</h2>
-        </div>
-        <div className="space-y-3">
-          {members.map((person) => (
-            <PersonRow key={person.id} person={person} />
-          ))}
-        </div>
-      </section>
-
-      <section className="surface-card space-y-5 p-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-seafoam-500">
-            Anonymous
-          </p>
-          <h2 className="text-3xl text-ink">Anonymous uploaders</h2>
-        </div>
-        {anonymousUploaders.length ? (
-          <div className="space-y-3">
-            {anonymousUploaders.map((person) => (
-              <PersonRow key={person.id} person={person} />
+                  {tab.count}
+                </span>
+              </button>
             ))}
           </div>
-        ) : (
-          <p className="rounded-lg bg-ivory/70 p-4 text-sm text-slate">
-            No anonymous uploads have been submitted.
-          </p>
-        )}
+        </div>
+
+        {activeTab === "users" ? (
+          <div className="space-y-3">
+            {members.map((person) => (
+              <PersonRow
+                key={person.id}
+                person={person}
+                canManageRoles={canManageRoles}
+                onRoleToggle={handleRoleToggle}
+              />
+            ))}
+            {!members.length ? (
+              <p className="rounded-lg bg-ivory/70 p-4 text-sm text-slate">
+                No signed-in users have joined this event yet.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {activeTab === "anonymous" ? (
+          anonymousUploaders.length ? (
+            <div className="space-y-3">
+              {anonymousUploaders.map((person) => (
+                <PersonRow key={person.id} person={person} />
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg bg-ivory/70 p-4 text-sm text-slate">
+              No anonymous uploads have been submitted.
+            </p>
+          )
+        ) : null}
+
+        {activeTab === "privateAccess" && event.privateGallery && canManagePrivateAccess ? (
+          <div className="space-y-5">
+            <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleInvite}>
+              <div className="field-shell flex-1">
+                <input
+                  className="field-input"
+                  type="email"
+                  value={inviteEmail}
+                  placeholder="person@example.com"
+                  onChange={(inputEvent) => setInviteEmail(inputEvent.target.value)}
+                />
+              </div>
+              <button type="submit" className="primary-button" disabled={saving}>
+                <MailPlus className="mr-2 h-4 w-4" />
+                {saving ? "Adding..." : "Add user"}
+              </button>
+            </form>
+
+            <div className="space-y-3">
+              {accessRows.length ? (
+                accessRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="flex flex-col gap-4 rounded-lg border border-ink/10 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="font-medium text-ink">{row.user.name}</p>
+                      <p className="text-sm text-slate">{row.user.email}</p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <span className="rounded-full bg-ivory px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate">
+                        {row.status}
+                      </span>
+                      {row.status === "pending" ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void handleApprove(row)}
+                        >
+                          <Check className="mr-2 h-4 w-4" />
+                          Approve
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="secondary-button border-red-200 text-red-600 hover:bg-red-50"
+                        onClick={() => void handleRemoveAccess(row.user.id)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="rounded-lg bg-ivory/70 p-4 text-sm text-slate">
+                  No private-gallery access rows yet.
+                </p>
+              )}
+            </div>
+            {success ? <p className="text-sm text-seafoam-700">{success}</p> : null}
+          </div>
+        ) : null}
+        {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </section>
     </div>
   );
 }
 
-function PersonRow({ person }: { person: EventPerson }) {
+function PersonRow({
+  person,
+  canManageRoles = false,
+  onRoleToggle,
+}: {
+  person: EventPerson;
+  canManageRoles?: boolean;
+  onRoleToggle?: (person: EventPerson) => void;
+}) {
   const isCreator = person.role === "creator";
   const isAdmin = person.role === "admin";
   const isAnonymous = person.kind === "anonymous";
@@ -342,6 +425,15 @@ function PersonRow({ person }: { person: EventPerson }) {
         <span className="rounded-full bg-ivory px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate">
           {person.uploadCount} uploads
         </span>
+        {canManageRoles && !isCreator && !isAnonymous && onRoleToggle ? (
+          <button
+            type="button"
+            className="secondary-button min-h-0 px-3 py-1 text-xs"
+            onClick={() => onRoleToggle(person)}
+          >
+            {isAdmin ? "Remove admin" : "Make admin"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
