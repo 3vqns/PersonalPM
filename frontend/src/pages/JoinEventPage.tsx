@@ -104,7 +104,7 @@ export function JoinEventPage() {
 
       setRegistrationStatus("joining");
       setRegistrationError(null);
-      void apiFetch<EventJoinResponse>(`/api/events/${preview.id}/join`, {
+      void apiFetch<EventJoinResponse>(`/api/events/join/${token}`, {
         method: "POST",
       })
         .then((joinResponse) => {
@@ -132,11 +132,6 @@ export function JoinEventPage() {
       return;
     }
 
-    if (preview.alreadyJoined) {
-      navigate(`/event/${preview.id}`, { replace: true });
-      return;
-    }
-
     void (async () => {
       try {
         await handleJoin();
@@ -155,10 +150,10 @@ export function JoinEventPage() {
     setError(null);
 
     try {
-      await apiFetch(`/api/events/${preview.id}/join`, {
+      const joinResponse = await apiFetch<EventJoinResponse>(`/api/events/join/${token}`, {
         method: "POST",
       });
-      navigate(`/event/${preview.id}`, { replace: true });
+      navigate(`/event/${joinResponse.eventId}`, { replace: true });
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -519,17 +514,11 @@ export function JoinEventPage() {
                   type="button"
                   className="primary-button w-full"
                   onClick={() =>
-                    void (preview.alreadyJoined
-                      ? navigate(`/event/${preview.id}`)
-                      : handleJoin())
+                    void handleJoin()
                   }
                   disabled={submitting}
                 >
-                  {preview.alreadyJoined
-                    ? "Opening gallery"
-                    : submitting
-                      ? "Joining event..."
-                      : "Join event"}
+                  {submitting ? "Joining event..." : "Join event"}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </button>
               </div>

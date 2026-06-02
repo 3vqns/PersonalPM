@@ -171,6 +171,7 @@
 | POST | `/api/events` | User | Create event + Rekognition collection |
 | GET | `/api/events/{id}` | Member | Get event details + photo counts |
 | GET | `/api/events/join/{token}` | Public | Get limited event preview by join token |
+| POST | `/api/events/join/{token}` | User | Join by QR/link token and repair membership/gallery access |
 | POST | `/api/events/{id}/join` | User | Join event + enqueue background match job |
 | GET | `/api/events/{id}/people` | Member | Event people list, including signed-in members and anonymous uploaders |
 | POST | `/api/events/{id}/access-requests` | Member | Request private gallery access |
