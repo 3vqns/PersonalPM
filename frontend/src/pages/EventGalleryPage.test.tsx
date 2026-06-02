@@ -315,4 +315,64 @@ describe("EventGalleryPage", () => {
 
     expect(screen.getByText("http://localhost:3000/join/join-token")).toBeInTheDocument();
   });
+
+  it("keeps the event gallery visible when one photo request fails", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: { access_token: "token" } as never,
+      user: { id: "user-1", email: "me@example.com", name: "Jordan", hasFaceProfile: true },
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/event-1") {
+        return {
+          id: "event-1",
+          name: "Launch Party",
+          date: "2026-05-10",
+          location: "TBD",
+          status: "active",
+          joinToken: "join-token",
+          role: "member",
+          creator: { id: "creator-1", name: "Taylor" },
+          counts: { allPhotos: 1, myPhotos: 0, members: 5 },
+        };
+      }
+
+      if (path === "/api/events/event-1/photos") {
+        return {
+          photos: [
+            {
+              id: "photo-1",
+              cloudinaryUrl: "https://example.com/photo.jpg",
+              thumbnailUrl: "https://example.com/photo-thumb.jpg",
+              uploadedAt: "2026-05-10T00:00:00Z",
+              faceCount: 1,
+            },
+          ],
+        };
+      }
+
+      if (path === "/api/events/event-1/my-photos") {
+        throw new Error("Could not load your photos");
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1"]}>
+        <Routes>
+          <Route path="/event/:id" element={<EventGalleryPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Launch Party")).toBeInTheDocument();
+    expect(screen.queryByText("Gallery unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText(/Could not load your photos/i)).toBeInTheDocument();
+  });
 });
