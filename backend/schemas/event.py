@@ -245,6 +245,7 @@ class EventJoinResponse(BaseModel):
     event_id: str = Field(alias="eventId")
     already_joined: bool = Field(alias="alreadyJoined")
     role: EventRole
+    gallery_access_status: GalleryAccessStatus = Field(default="approved", alias="galleryAccessStatus")
 
     model_config = ConfigDict(populate_by_name=True)
 

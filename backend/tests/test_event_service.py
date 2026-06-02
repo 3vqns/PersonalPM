@@ -192,7 +192,8 @@ def test_join_private_event_creates_pending_gallery_request(monkeypatch) -> None
     response = event_service.join_event(current_user, event_id=event.id, background_tasks=FakeBackgroundTasks())
 
     assert response.role == "member"
-    assert ensured_members == [("event-1", "user-1")]
+    assert response.gallery_access_status == "pending"
+    assert ensured_members == []
     assert client.upserted_gallery_access == [
         (
             {

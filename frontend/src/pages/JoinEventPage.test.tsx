@@ -77,7 +77,12 @@ describe("JoinEventPage", () => {
 
     mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
       if (path === "/api/events/join/demo-token" && options?.method === "POST") {
-        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+        return {
+          eventId: "event-1",
+          alreadyJoined: false,
+          role: "member",
+          galleryAccessStatus: "approved",
+        };
       }
 
       if (path === "/api/events/join/demo-token") {
@@ -153,7 +158,12 @@ describe("JoinEventPage", () => {
 
     mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
       if (path === "/api/events/join/demo-token" && options?.method === "POST") {
-        return { eventId: "event-1", alreadyJoined: true, role: "member" };
+        return {
+          eventId: "event-1",
+          alreadyJoined: true,
+          role: "member",
+          galleryAccessStatus: "approved",
+        };
       }
 
       if (path === "/api/events/join/demo-token") {
@@ -197,7 +207,12 @@ describe("JoinEventPage", () => {
       }
 
       if (path === "/api/events/join/demo-token") {
-        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+        return {
+          eventId: "event-1",
+          alreadyJoined: false,
+          role: "member",
+          galleryAccessStatus: "approved",
+        };
       }
 
       throw new Error(`Unexpected path: ${path}`);
@@ -238,7 +253,12 @@ describe("JoinEventPage", () => {
 
     mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
       if (path === "/api/events/join/demo-token" && options?.method === "POST") {
-        return { eventId: "event-1", alreadyJoined: false, role: "member" };
+        return {
+          eventId: "event-1",
+          alreadyJoined: false,
+          role: "member",
+          galleryAccessStatus: "approved",
+        };
       }
 
       if (path === "/api/events/join/demo-token") {
@@ -381,7 +401,7 @@ describe("JoinEventPage", () => {
     expect(screen.queryByText("No photos uploaded yet")).not.toBeInTheDocument();
   });
 
-  it("registers signed-in users from private gallery links before opening the event", async () => {
+  it("sends a pending request for signed-in private gallery links", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -397,7 +417,16 @@ describe("JoinEventPage", () => {
       startDemo: vi.fn(),
     });
 
-    mockedApiFetch.mockImplementation(async (path: string) => {
+    mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path === "/api/events/join/demo-token" && options?.method === "POST") {
+        return {
+          eventId: "event-1",
+          alreadyJoined: false,
+          role: "member",
+          galleryAccessStatus: "pending",
+        };
+      }
+
       if (path === "/api/events/join/demo-token") {
         return {
           id: "event-1",
@@ -430,7 +459,8 @@ describe("JoinEventPage", () => {
         method: "POST",
       });
     });
-    expect(await screen.findByText("Joined private gallery")).toBeInTheDocument();
+    expect(await screen.findByText("Request to join Private Event sent!")).toBeInTheDocument();
+    expect(screen.queryByText("Joined private gallery")).not.toBeInTheDocument();
   });
 
   it("shows the public join auth flow without starting Google automatically", async () => {

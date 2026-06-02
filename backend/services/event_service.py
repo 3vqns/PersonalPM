@@ -365,11 +365,10 @@ def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) ->
 
     existing_status = _get_gallery_access_status(event.id, current_user.user_id)
     if existing_status:
-        if existing_status == "pending":
+        if existing_status == "approved":
             _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         return GalleryAccessRequestResponse(status=existing_status)
 
-    _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
     _upsert_gallery_access(
         event_id=event.id,
         user_id=current_user.user_id,
@@ -557,26 +556,37 @@ def _join_event_record(
 ) -> EventJoinResponse:
     public_user = get_public_user_record(current_user)
     if event.creator_id == current_user.user_id:
-        return EventJoinResponse(eventId=event.id, alreadyJoined=True, role="creator")
+        return EventJoinResponse(eventId=event.id, alreadyJoined=True, role="creator", galleryAccessStatus="owner")
 
     membership = _get_membership(event.id, current_user.user_id)
     already_joined = membership is not None
 
-    if not already_joined:
+    if not event.private_gallery and not already_joined:
         _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         membership = _get_membership(event.id, current_user.user_id)
 
-    if event.private_gallery and (membership is None or membership.role != "admin"):
+    gallery_access_status: GalleryAccessStatus = "approved"
+    if event.private_gallery and membership is not None and membership.role == "admin":
+        gallery_access_status = "approved"
+    elif event.private_gallery:
         existing_status = _get_gallery_access_status(event.id, current_user.user_id)
-        if existing_status is None:
+        if existing_status == "approved":
+            if membership is None:
+                _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
+                membership = _get_membership(event.id, current_user.user_id)
+            gallery_access_status = "approved"
+        elif existing_status == "pending":
+            gallery_access_status = "pending"
+        else:
             _upsert_gallery_access(
                 event_id=event.id,
                 user_id=current_user.user_id,
                 status="pending",
                 invited_by=event.creator_id,
             )
+            gallery_access_status = "pending"
 
-    if public_user.has_face_profile:
+    if gallery_access_status == "approved" and public_user.has_face_profile:
         background_tasks.add_task(
             trigger_user_event_match,
             user_id=current_user.user_id,
@@ -584,7 +594,12 @@ def _join_event_record(
             reason="event-join",
         )
 
-    return EventJoinResponse(eventId=event.id, alreadyJoined=already_joined, role=membership.role if membership else "member")
+    return EventJoinResponse(
+        eventId=event.id,
+        alreadyJoined=already_joined,
+        role=membership.role if membership else "member",
+        galleryAccessStatus=gallery_access_status,
+    )
 
 
 def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[EventSummaryResponse]:
