@@ -12,10 +12,15 @@ from backend.schemas.event import (
     EventCreateRequest,
     EventCreateResponse,
     EventDetailResponse,
+    EventPeopleResponse,
     EventJoinResponse,
     EventMemberResponse,
     EventMemberRoleUpdateRequest,
     EventUpdateRequest,
+    GalleryAccessRequest,
+    GalleryAccessRequestResponse,
+    GalleryAccessResponse,
+    GalleryAccessStatusUpdateRequest,
     JoinPreviewResponse,
     PublicEventGalleryResponse,
 )
@@ -25,11 +30,17 @@ from backend.services.event_service import (
     delete_event,
     get_dashboard,
     get_event_detail,
+    invite_gallery_access_by_email,
     get_join_preview,
     get_public_event_gallery,
     join_event,
+    list_event_people,
+    list_gallery_access,
     list_event_members,
+    remove_gallery_access,
+    request_gallery_access,
     update_event,
+    update_gallery_access_status,
     update_event_member_role,
 )
 from backend.services.photo_upload_service import delete_event_photo, get_event_upload_token, index_direct_uploads, start_event_upload_batch
@@ -52,6 +63,7 @@ async def post_event(
     description: str | None = Form(default=None),
     tags: str = Form(default="[]"),
     allow_anyone_upload: bool = Form(default=False),
+    private_gallery: bool = Form(default=False),
     cover: UploadFile | None = File(default=None),
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> EventCreateResponse:
@@ -62,6 +74,7 @@ async def post_event(
         description=description,
         tags=tags,
         allow_anyone_upload=allow_anyone_upload,
+        private_gallery=private_gallery,
     )
     if payload.date is None or payload.name is None:
         raise AppError("Missing required event fields", code="VALIDATION_ERROR", status=422)
@@ -72,6 +85,7 @@ async def post_event(
         description=payload.description,
         tags=payload.tags,
         allow_anyone_upload=payload.allow_anyone_upload,
+        private_gallery=payload.private_gallery,
         cover=cover,
     )
 
@@ -139,6 +153,64 @@ async def get_members(
 ) -> list[EventMemberResponse]:
     """Return the member list for an event member or creator."""
     return list_event_members(current_user, event_id=event_id)
+
+
+@router.get("/api/events/{event_id}/people", response_model=EventPeopleResponse)
+async def get_people(
+    event_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> EventPeopleResponse:
+    """Return signed-in event members and anonymous uploaders."""
+    return list_event_people(current_user, event_id=event_id)
+
+
+@router.post("/api/events/{event_id}/access-requests", response_model=GalleryAccessRequestResponse)
+async def post_gallery_access_request(
+    event_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> GalleryAccessRequestResponse:
+    """Request access to a private gallery."""
+    return request_gallery_access(current_user, event_id=event_id)
+
+
+@router.get("/api/events/{event_id}/gallery-access", response_model=list[GalleryAccessResponse])
+async def get_gallery_access(
+    event_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> list[GalleryAccessResponse]:
+    """Return private-gallery access rows. Creator only."""
+    return list_gallery_access(current_user, event_id=event_id)
+
+
+@router.post("/api/events/{event_id}/gallery-access", response_model=GalleryAccessResponse)
+async def post_gallery_access(
+    event_id: str,
+    payload: GalleryAccessRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> GalleryAccessResponse:
+    """Approve private-gallery access for an existing user by email."""
+    return invite_gallery_access_by_email(current_user, event_id=event_id, email=payload.email)
+
+
+@router.patch("/api/events/{event_id}/gallery-access/{user_id}", response_model=GalleryAccessResponse)
+async def patch_gallery_access(
+    event_id: str,
+    user_id: str,
+    payload: GalleryAccessStatusUpdateRequest,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> GalleryAccessResponse:
+    """Approve or move gallery access back to pending. Creator only."""
+    return update_gallery_access_status(current_user, event_id=event_id, user_id=user_id, status=payload.status)
+
+
+@router.delete("/api/events/{event_id}/gallery-access/{user_id}")
+async def delete_gallery_access(
+    event_id: str,
+    user_id: str,
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
+) -> dict[str, bool]:
+    """Remove one user's private-gallery access. Creator only."""
+    return remove_gallery_access(current_user, event_id=event_id, user_id=user_id)
 
 
 @router.patch("/api/events/{event_id}/members/{user_id}")
@@ -213,6 +285,7 @@ def _parse_event_create_payload(
     description: str | None,
     tags: str,
     allow_anyone_upload: bool,
+    private_gallery: bool,
 ) -> EventCreateRequest:
     try:
         parsed_tags = json.loads(tags or "[]")
@@ -226,6 +299,7 @@ def _parse_event_create_payload(
             description=description,
             tags=parsed_tags,
             allow_anyone_upload=allow_anyone_upload,
+            private_gallery=private_gallery,
         )
     except ValidationError as exc:
         raise AppError("Invalid event fields", code="VALIDATION_ERROR", status=422, details={"errors": exc.errors()}) from exc

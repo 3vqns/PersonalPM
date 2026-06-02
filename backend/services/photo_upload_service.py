@@ -22,6 +22,7 @@ from backend.services.cloudinary_service import delete_event_photo_assets, gener
 from backend.services.matching_service import trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
 from backend.services.upload_job_service import create_direct_upload_job, create_upload_job
+from backend.services.account_service import get_public_user_record
 
 logger = logging.getLogger("pictureme.uploads")
 _ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -46,6 +47,7 @@ async def start_event_upload_batch(
     event, role = _require_upload_access(current_user.user_id if current_user else None, event_id)
     created_by = current_user.user_id if current_user else None
     cleaned_uploader_name = _clean_uploader_name(uploader_name, require_name=current_user is None)
+    uploader_display_name = cleaned_uploader_name or _get_current_user_display_name(current_user)
     if len(files) > getSettings().max_event_upload_batch_files:
         raise AppError(
             "Too many photos were submitted in one batch",
@@ -64,7 +66,7 @@ async def start_event_upload_batch(
         files=staged_files,
         uploader_name=cleaned_uploader_name,
     )
-    background_tasks.add_task(_process_upload_job, job.id, created_by, event, staged_files)
+    background_tasks.add_task(_process_upload_job, job.id, created_by, uploader_display_name, event, staged_files)
     logger.info(
         "Accepted upload batch",
         extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(staged_files)},
@@ -94,6 +96,7 @@ def index_direct_uploads(
     event, role = _require_upload_access(current_user.user_id if current_user else None, event_id)
     created_by = current_user.user_id if current_user else None
     cleaned_uploader_name = _clean_uploader_name(uploader_name, require_name=current_user is None)
+    uploader_display_name = cleaned_uploader_name or _get_current_user_display_name(current_user)
     if not photos:
         raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
     if len(photos) > getSettings().max_event_upload_batch_files:
@@ -115,7 +118,7 @@ def index_direct_uploads(
         total_files=len(photos),
         uploader_name=cleaned_uploader_name,
     )
-    background_tasks.add_task(_process_direct_upload_job, job.id, created_by, event, photos)
+    background_tasks.add_task(_process_direct_upload_job, job.id, created_by, uploader_display_name, event, photos)
     logger.info(
         "Accepted direct upload batch",
         extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(photos)},
@@ -126,6 +129,7 @@ def index_direct_uploads(
 def _process_direct_upload_job(
     job_id: str,
     uploader_user_id: str | None,
+    uploader_name: str | None,
     event: EventRecord,
     photos: list[DirectUploadPhoto],
 ) -> None:
@@ -152,7 +156,7 @@ def _process_direct_upload_job(
                 "thumbnail_url": thumbnail_url,
                 "original_filename": photo.original_filename,
             }
-            photo_id = _insert_photo_row(event.id, uploader_user_id, upload_result)
+            photo_id = _insert_photo_row(event.id, uploader_user_id, uploader_name, upload_result)
             face_records = index_event_photo(
                 collection_id=event.rekognition_collection_id,
                 photo_id=photo_id,
@@ -226,7 +230,13 @@ async def _stage_upload_files(event_id: str, files: list[UploadFile]) -> list[St
     return staged_files
 
 
-def _process_upload_job(job_id: str, uploader_user_id: str | None, event: EventRecord, staged_files: list[StagedUploadFile]) -> None:
+def _process_upload_job(
+    job_id: str,
+    uploader_user_id: str | None,
+    uploader_name: str | None,
+    event: EventRecord,
+    staged_files: list[StagedUploadFile],
+) -> None:
     indexed_files = 0
     failed_files = 0
 
@@ -234,6 +244,7 @@ def _process_upload_job(job_id: str, uploader_user_id: str | None, event: EventR
         completed = _process_one_file(
             job_id=job_id,
             uploader_user_id=uploader_user_id,
+            uploader_name=uploader_name,
             event=event,
             staged_file=staged_file,
         )
@@ -263,6 +274,7 @@ def _process_one_file(
     *,
     job_id: str,
     uploader_user_id: str | None,
+    uploader_name: str | None,
     event: EventRecord,
     staged_file: StagedUploadFile,
 ) -> bool:
@@ -274,7 +286,7 @@ def _process_one_file(
     try:
         upload_result = upload_event_photo(event_id=event.id, file_name=staged_file.file_name, content=staged_file.content)
         upload_result["original_filename"] = staged_file.file_name
-        photo_id = _insert_photo_row(event.id, uploader_user_id, upload_result)
+        photo_id = _insert_photo_row(event.id, uploader_user_id, uploader_name, upload_result)
         face_records = index_event_photo(collection_id=event.rekognition_collection_id, photo_id=photo_id, content=staged_file.content)
         _insert_face_index_rows(event.id, photo_id, face_records)
         logger.info(
@@ -299,11 +311,12 @@ def _process_one_file(
         return False
 
 
-def _insert_photo_row(event_id: str, uploader_user_id: str | None, upload_result: dict) -> str:
+def _insert_photo_row(event_id: str, uploader_user_id: str | None, uploader_name: str | None, upload_result: dict) -> str:
     client = get_supabase_admin_client()
     payload = {
         "event_id": event_id,
         "uploaded_by": uploader_user_id,
+        "uploader_name": uploader_name,
         "original_filename": upload_result["original_filename"],
         "cloudinary_url": upload_result["cloudinary_url"],
         "cloudinary_id": upload_result["public_id"],
@@ -316,7 +329,7 @@ def _insert_photo_row(event_id: str, uploader_user_id: str | None, upload_result
         if not _is_missing_original_filename_column(exc):
             raise AppError("PictureMe could not create the photo record", code="PHOTO_CREATE_FAILED", status=500) from exc
 
-        fallback_payload = {key: value for key, value in payload.items() if key != "original_filename"}
+        fallback_payload = {key: value for key, value in payload.items() if key not in {"original_filename", "uploader_name"}}
         try:
             response = client.table("photos").insert(fallback_payload).execute()
         except Exception as retry_exc:
@@ -391,6 +404,15 @@ def _clean_uploader_name(uploader_name: str | None, *, require_name: bool) -> st
     if require_name and not cleaned_name:
         raise AppError("Anonymous uploads require an uploader name", code="VALIDATION_ERROR", status=422)
     return cleaned_name[:50] if cleaned_name else None
+
+
+def _get_current_user_display_name(current_user: AuthenticatedUser | None) -> str | None:
+    if current_user is None:
+        return None
+    try:
+        return get_public_user_record(current_user).name[:100]
+    except Exception:
+        return current_user.email or current_user.user_id
 
 
 def delete_event_photo(current_user: AuthenticatedUser, *, event_id: str, photo_id: str) -> dict[str, bool]:

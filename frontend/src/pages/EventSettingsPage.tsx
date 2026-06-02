@@ -28,6 +28,7 @@ export function EventSettingsPage() {
     date: "",
     description: "",
     allowAnyoneUpload: false,
+    privateGallery: false,
     tags: [] as string[],
     otherTagText: "",
   });
@@ -65,6 +66,7 @@ export function EventSettingsPage() {
           date: eventResponse.date,
           description: eventResponse.description ?? "",
           allowAnyoneUpload: eventResponse.allowAnyoneUpload ?? false,
+          privateGallery: eventResponse.privateGallery ?? false,
           tags: otherTag ? [...knownTags, "Other"] : knownTags,
           otherTagText: otherTag ?? "",
         });
@@ -116,6 +118,7 @@ export function EventSettingsPage() {
           date: form.date,
           description: form.description,
           allow_anyone_upload: form.allowAnyoneUpload,
+          privateGallery: form.privateGallery,
           tags: finalTags,
         },
       });
@@ -363,6 +366,28 @@ export function EventSettingsPage() {
               <p className="text-sm font-medium text-ink">Allow anyone to upload photos</p>
               <p className="mt-0.5 text-xs leading-5 text-slate">
                 When enabled, guests who open the event link without signing in can upload photos to this gallery.
+              </p>
+            </div>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-4 rounded-[28px] border border-ink/10 p-4 lg:col-span-2 hover:bg-ink/[0.02] transition">
+            <div className="flex h-5 items-center">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded accent-seafoam-500 cursor-pointer"
+                checked={form.privateGallery}
+                onChange={(inputEvent) =>
+                  setForm((value) => ({
+                    ...value,
+                    privateGallery: inputEvent.target.checked,
+                  }))
+                }
+              />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-ink">Require approval to view gallery</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate">
+                When enabled, only the owner, admins, and approved users can view event photos.
               </p>
             </div>
           </label>

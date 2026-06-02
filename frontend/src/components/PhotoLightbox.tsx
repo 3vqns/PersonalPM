@@ -80,6 +80,17 @@ export function PhotoLightbox({
           Close
         </button>
         <div className="flex items-center gap-3">
+          {currentPhoto.uploaderName ? (
+            <div className="max-w-[11rem] text-right text-xs leading-5 text-white/70">
+              <span className="block uppercase tracking-[0.2em] text-white/45">
+                Uploaded by
+              </span>
+              <span className="block truncate text-sm text-white">
+                {currentPhoto.uploaderName}
+                {currentPhoto.uploaderIsAnonymous ? " (anonymous)" : ""}
+              </span>
+            </div>
+          ) : null}
           <button
             type="button"
             className="secondary-button border-white/20 bg-white/10 text-white"

@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 import { AccountSettingsPage } from "../pages/AccountSettingsPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { EventGalleryPage } from "../pages/EventGalleryPage";
+import { EventPeoplePage } from "../pages/EventPeoplePage";
 import { EventSettingsPage } from "../pages/EventSettingsPage";
 import { JoinEventPage } from "../pages/JoinEventPage";
 import { LandingPage } from "../pages/LandingPage";
@@ -57,6 +58,7 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/event/:id" element={<EventGalleryPage />} />
+          <Route path="/event/:id/people" element={<EventPeoplePage />} />
           <Route path="/event/:id/settings" element={<EventSettingsPage />} />
           <Route path="/account/settings" element={<AccountSettingsPage />} />
         </Route>

@@ -10,6 +10,7 @@ from backend.schemas.account import AccountUserResponse
 
 EventRole = Literal["creator", "admin", "member"]
 EventStatus = Literal["active", "expired"]
+GalleryAccessStatus = Literal["owner", "approved", "pending", "none"]
 
 
 class CreatorSummary(BaseModel):
@@ -37,6 +38,7 @@ class EventSummaryResponse(BaseModel):
     date: calendar_date
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
+    private_gallery: bool = Field(default=False, alias="privateGallery")
     cover_url: str | None = Field(default=None, alias="coverUrl")
     host_name: str | None = Field(default=None, alias="hostName")
     photo_count: int = Field(alias="photoCount")
@@ -78,6 +80,8 @@ class EventDetailResponse(BaseModel):
     date: calendar_date
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
+    private_gallery: bool = Field(default=False, alias="privateGallery")
+    gallery_access_status: GalleryAccessStatus = Field(default="none", alias="galleryAccessStatus")
     status: EventStatus
     cover_url: str | None = Field(default=None, alias="coverUrl")
     join_token: str = Field(alias="joinToken")
@@ -102,6 +106,7 @@ class EventCreateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
+    private_gallery: bool = Field(default=False, alias="privateGallery")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -114,6 +119,8 @@ class JoinPreviewResponse(BaseModel):
     date: calendar_date
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = Field(default=False, alias="allowAnyoneUpload")
+    private_gallery: bool = Field(default=False, alias="privateGallery")
+    gallery_access_status: GalleryAccessStatus | None = Field(default=None, alias="galleryAccessStatus")
     host_name: str = Field(alias="hostName")
     cover_url: str | None = Field(default=None, alias="coverUrl")
     photo_count: int = Field(alias="photoCount")
@@ -149,6 +156,7 @@ class EventUpdateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     tags: list[str] | None = None
     allow_anyone_upload: bool | None = Field(default=None, alias="allowAnyoneUpload")
+    private_gallery: bool | None = Field(default=None, alias="privateGallery")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -157,6 +165,72 @@ class EventMemberRoleUpdateRequest(BaseModel):
     """Allowed creator-managed role updates."""
 
     role: Literal["admin", "member"]
+
+
+class GalleryAccessRequest(BaseModel):
+    """Creator invite request for a signed-up user."""
+
+    email: str = Field(min_length=3, max_length=320)
+
+
+class GalleryAccessStatusUpdateRequest(BaseModel):
+    """Creator-managed gallery access status update."""
+
+    status: Literal["approved", "pending"]
+
+
+class GalleryAccessUserResponse(BaseModel):
+    """User summary attached to a gallery access row."""
+
+    id: str
+    name: str
+    email: str
+    avatar_url: str | None = Field(default=None, alias="avatarUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GalleryAccessResponse(BaseModel):
+    """Gallery access row for request-access mode."""
+
+    id: str
+    user: GalleryAccessUserResponse
+    status: Literal["pending", "approved"]
+    requested_at: datetime = Field(alias="requestedAt")
+    approved_at: datetime | None = Field(default=None, alias="approvedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GalleryAccessRequestResponse(BaseModel):
+    """Current user's access-request result."""
+
+    status: GalleryAccessStatus
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class EventPersonResponse(BaseModel):
+    """People-list row for signed-in members and anonymous uploaders."""
+
+    id: str
+    name: str
+    email: str | None = None
+    role: EventRole | None = None
+    joined_at: datetime | None = Field(default=None, alias="joinedAt")
+    avatar_url: str | None = Field(default=None, alias="avatarUrl")
+    kind: Literal["member", "anonymous"]
+    upload_count: int = Field(default=0, alias="uploadCount")
+    gallery_access_status: GalleryAccessStatus | None = Field(default=None, alias="galleryAccessStatus")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class EventPeopleResponse(BaseModel):
+    """People list for one event."""
+
+    event: EventDetailResponse
+    people: list[EventPersonResponse]
 
 
 class EventJoinResponse(BaseModel):
@@ -180,6 +254,7 @@ class EventRecord(BaseModel):
     expires_at: datetime | None = None
     tags: list[str] = Field(default_factory=list)
     allow_anyone_upload: bool = False
+    private_gallery: bool = False
     join_token: str
     rekognition_collection_id: str
     cover_url: str | None = None
@@ -204,6 +279,8 @@ class PhotoResponse(BaseModel):
     cloudinary_url: str = Field(alias="cloudinaryUrl")
     thumbnail_url: str | None = Field(default=None, alias="thumbnailUrl")
     original_filename: str | None = Field(default=None, alias="originalFilename")
+    uploader_name: str | None = Field(default=None, alias="uploaderName")
+    uploader_is_anonymous: bool = Field(default=False, alias="uploaderIsAnonymous")
     uploaded_at: datetime = Field(alias="uploadedAt")
     face_count: int = Field(alias="faceCount")
 
@@ -301,6 +378,8 @@ class PhotoRecord(BaseModel):
     cloudinary_url: str | None = None
     thumbnail_url: str | None = None
     original_filename: str | None = None
+    uploaded_by: str | None = None
+    uploader_name: str | None = None
     uploaded_at: datetime
     face_count: int
 

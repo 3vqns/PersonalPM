@@ -13,6 +13,12 @@ export function normalizePhoto(record: Record<string, unknown>): Photo {
     originalFilename:
       readOptionalString(record, "originalFilename") ??
       readOptionalString(record, "original_filename"),
+    uploaderName:
+      readOptionalString(record, "uploaderName") ??
+      readOptionalString(record, "uploader_name"),
+    uploaderIsAnonymous:
+      readBoolean(record, "uploaderIsAnonymous") ??
+      readBoolean(record, "uploader_is_anonymous"),
     uploadedAt:
       readString(record, "uploadedAt") ||
       readString(record, "uploaded_at") ||
@@ -35,4 +41,9 @@ function readOptionalString(record: Record<string, unknown>, key: string) {
 function readNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
   return typeof value === "number" ? value : undefined;
+}
+
+function readBoolean(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "boolean" ? value : undefined;
 }

@@ -79,6 +79,36 @@ def test_shared_gallery_uses_only_token_owner_matches(monkeypatch) -> None:
     assert response.download_all_url == "https://example.com/photo.jpg"
 
 
+def test_shared_gallery_rejects_private_gallery_tokens(monkeypatch) -> None:
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Expo",
+        description=None,
+        date=date(2026, 4, 18),
+        expires_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url=None,
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+        private_gallery=True,
+    )
+
+    monkeypatch.setattr(
+        gallery_service,
+        "_get_gallery_token_or_404",
+        lambda _token: GalleryTokenRecord(token="public-token", user_id="user-1", event_id=event.id),
+    )
+    monkeypatch.setattr(gallery_service, "_get_event_or_404", lambda _event_id: event)
+
+    with pytest.raises(AppError) as exc_info:
+        gallery_service.get_shared_gallery("public-token")
+
+    assert exc_info.value.code == "GALLERY_ACCESS_REQUIRED"
+    assert exc_info.value.status == 403
+
+
 def test_my_photos_uses_first_matched_photo_for_download_url(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",
@@ -265,6 +295,6 @@ def test_list_event_photos_falls_back_when_original_filename_column_is_missing(m
 
     assert [photo.id for photo in photos] == ["photo-1"]
     assert client.calls == [
-        "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count",
-        "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count",
+        "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count",
+        "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,uploaded_at,face_count",
     ]

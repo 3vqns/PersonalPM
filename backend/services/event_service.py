@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import BackgroundTasks, UploadFile
 
@@ -21,14 +21,20 @@ from backend.schemas.event import (
     DashboardResponse,
     EventCreateResponse,
     EventDetailResponse,
+    EventPeopleResponse,
     EventJoinResponse,
     EventMemberRecord,
     EventMemberPreviewResponse,
     EventMemberResponse,
+    EventPersonResponse,
     EventRecord,
     EventRole,
     EventSummaryResponse,
     EventUpdateRequest,
+    GalleryAccessRequestResponse,
+    GalleryAccessResponse,
+    GalleryAccessStatus,
+    GalleryAccessUserResponse,
     JoinPreviewResponse,
     PhotoResponse,
     PhotoRecord,
@@ -41,7 +47,7 @@ from backend.services.matching_service import trigger_user_event_match
 logger = logging.getLogger("pictureme.events")
 _EVENT_SELECT_COLUMNS = (
     "id,creator_id,name,description,date,join_token,rekognition_collection_id,"
-    "cover_url,status,created_at,tags,allow_anyone_upload"
+    "cover_url,status,created_at,tags,allow_anyone_upload,private_gallery"
 )
 
 
@@ -73,6 +79,7 @@ async def create_event(
     description: str | None,
     tags: list[str] | None = None,
     allow_anyone_upload: bool = False,
+    private_gallery: bool = False,
     cover: UploadFile | None = None,
 ) -> EventCreateResponse:
     """Create an event, its creator membership, and its Rekognition collection."""
@@ -108,6 +115,7 @@ async def create_event(
                 "date": date_value.isoformat(),
                 "tags": _normalize_tags(tags),
                 "allow_anyone_upload": allow_anyone_upload,
+                "private_gallery": private_gallery,
                 "join_token": join_token,
                 "rekognition_collection_id": collection_id,
                 "status": "active",
@@ -187,6 +195,8 @@ def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: Eve
         update_payload["tags"] = _normalize_tags(payload.tags)
     if payload.allow_anyone_upload is not None:
         update_payload["allow_anyone_upload"] = payload.allow_anyone_upload
+    if payload.private_gallery is not None:
+        update_payload["private_gallery"] = payload.private_gallery
 
     if update_payload:
         try:
@@ -244,6 +254,34 @@ def list_event_members(current_user: AuthenticatedUser, *, event_id: str) -> lis
     return members
 
 
+def list_event_people(current_user: AuthenticatedUser, *, event_id: str) -> EventPeopleResponse:
+    """Return signed-in members plus anonymous uploaders for one event."""
+    event = _get_event_or_404(event_id)
+    role = _require_event_role(current_user.user_id, event)
+    creator = _get_public_user_by_id(event.creator_id)
+    event_detail = _build_event_detail(event, current_user.user_id, role, creator)
+    members = list_event_members(current_user, event_id=event_id)
+    access_by_user_id = _get_gallery_access_statuses(event_id)
+    upload_counts = _get_upload_counts_by_user(event_id)
+
+    people: list[EventPersonResponse] = [
+        EventPersonResponse(
+            id=member.user_id,
+            name=member.name,
+            email=member.email,
+            role=member.role,
+            joinedAt=member.joined_at,
+            avatarUrl=member.avatar_url,
+            kind="member",
+            uploadCount=upload_counts.get(member.user_id, 0),
+            galleryAccessStatus=_get_effective_gallery_access_status(member.user_id, event, access_by_user_id),
+        )
+        for member in members
+    ]
+    people.extend(_list_anonymous_uploaders(event_id))
+    return EventPeopleResponse(event=event_detail, people=people)
+
+
 def update_event_member_role(
     current_user: AuthenticatedUser,
     *,
@@ -272,6 +310,135 @@ def update_event_member_role(
     return {"success": True}
 
 
+def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> GalleryAccessRequestResponse:
+    """Create or reuse a pending gallery access request for the current user."""
+    event = _get_event_or_404(event_id)
+    if not event.private_gallery:
+        return GalleryAccessRequestResponse(status="approved")
+    if current_user.user_id == event.creator_id:
+        return GalleryAccessRequestResponse(status="owner")
+
+    membership = _get_membership(event.id, current_user.user_id)
+    if membership and membership.role == "admin":
+        return GalleryAccessRequestResponse(status="approved")
+
+    existing_status = _get_gallery_access_status(event.id, current_user.user_id)
+    if existing_status:
+        return GalleryAccessRequestResponse(status=existing_status)
+
+    try:
+        get_supabase_admin_client().table("event_gallery_access").insert(
+            {
+                "event_id": event.id,
+                "user_id": current_user.user_id,
+                "status": "pending",
+            }
+        ).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not request gallery access", code="ACCESS_REQUEST_FAILED", status=500) from exc
+
+    return GalleryAccessRequestResponse(status="pending")
+
+
+def list_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> list[GalleryAccessResponse]:
+    """Return pending and approved private-gallery access rows. Creator only."""
+    event = _get_event_or_404(event_id)
+    _require_creator(current_user.user_id, event)
+    rows = _fetch_gallery_access_rows(event_id)
+    users = {user.id: user for user in _get_public_users_by_ids([row["user_id"] for row in rows if row.get("user_id")])}
+    response: list[GalleryAccessResponse] = []
+    for row in rows:
+        user = users.get(str(row.get("user_id")))
+        if user is None:
+            continue
+        response.append(
+            GalleryAccessResponse(
+                id=str(row["id"]),
+                user=GalleryAccessUserResponse(id=user.id, name=user.name, email=user.email, avatarUrl=user.avatar_url),
+                status=row.get("status", "pending"),
+                requestedAt=row.get("requested_at"),
+                approvedAt=row.get("approved_at"),
+            )
+        )
+    return response
+
+
+def invite_gallery_access_by_email(
+    current_user: AuthenticatedUser,
+    *,
+    event_id: str,
+    email: str,
+) -> GalleryAccessResponse:
+    """Approve gallery access for an existing PictureMe user by email."""
+    event = _get_event_or_404(event_id)
+    _require_creator(current_user.user_id, event)
+    invited_user = _get_public_user_by_email(email.strip().lower())
+    if invited_user.id == event.creator_id:
+        raise AppError("The event creator already has gallery access", code="ACCESS_INVITE_INVALID", status=422)
+
+    row = _upsert_gallery_access(
+        event_id=event.id,
+        user_id=invited_user.id,
+        status="approved",
+        invited_by=current_user.user_id,
+    )
+    return GalleryAccessResponse(
+        id=str(row["id"]),
+        user=GalleryAccessUserResponse(
+            id=invited_user.id,
+            name=invited_user.name,
+            email=invited_user.email,
+            avatarUrl=invited_user.avatar_url,
+        ),
+        status=row.get("status", "approved"),
+        requestedAt=row.get("requested_at"),
+        approvedAt=row.get("approved_at"),
+    )
+
+
+def update_gallery_access_status(
+    current_user: AuthenticatedUser,
+    *,
+    event_id: str,
+    user_id: str,
+    status: str,
+) -> GalleryAccessResponse:
+    """Approve or move a private-gallery access row back to pending."""
+    event = _get_event_or_404(event_id)
+    _require_creator(current_user.user_id, event)
+    if user_id == event.creator_id:
+        raise AppError("The event creator access cannot be changed", code="ACCESS_CHANGE_FORBIDDEN", status=403)
+    target_user = _get_public_user_by_id(user_id)
+    row = _upsert_gallery_access(event_id=event.id, user_id=user_id, status=status, invited_by=current_user.user_id)
+    return GalleryAccessResponse(
+        id=str(row["id"]),
+        user=GalleryAccessUserResponse(
+            id=target_user.id,
+            name=target_user.name,
+            email=target_user.email,
+            avatarUrl=target_user.avatar_url,
+        ),
+        status=row.get("status", status),
+        requestedAt=row.get("requested_at"),
+        approvedAt=row.get("approved_at"),
+    )
+
+
+def remove_gallery_access(current_user: AuthenticatedUser, *, event_id: str, user_id: str) -> dict[str, bool]:
+    """Remove one user's private-gallery access row. Creator only."""
+    event = _get_event_or_404(event_id)
+    _require_creator(current_user.user_id, event)
+    if user_id == event.creator_id:
+        raise AppError("The event creator access cannot be removed", code="ACCESS_CHANGE_FORBIDDEN", status=403)
+    try:
+        get_supabase_admin_client().table("event_gallery_access").delete().eq("event_id", event.id).eq(
+            "user_id", user_id
+        ).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not remove gallery access", code="ACCESS_REMOVE_FAILED", status=500) from exc
+    return {"success": True}
+
+
 def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) -> JoinPreviewResponse:
     """Return a public-safe preview for an invite token."""
     event = _get_event_by_join_token(token)
@@ -288,6 +455,8 @@ def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) 
         date=event.date,
         tags=event.tags,
         allowAnyoneUpload=event.allow_anyone_upload,
+        privateGallery=event.private_gallery,
+        galleryAccessStatus=_get_public_gallery_access_status(event, current_user.user_id) if current_user else None,
         hostName=creator.name,
         coverUrl=event.cover_url,
         photoCount=photo_count,
@@ -302,7 +471,12 @@ def get_public_event_gallery(token: str, current_user: AuthenticatedUser | None 
     """Return the public event gallery for an invite token."""
     preview = get_join_preview(token, current_user=current_user)
     event = _get_event_by_join_token(token)
-    photo_records = _list_public_event_photos(event.id)
+    if event.private_gallery and (
+        current_user is None or not _can_view_private_gallery(current_user.user_id, event)
+    ):
+        photo_records = []
+    else:
+        photo_records = _list_public_event_photos(event.id)
     return PublicEventGalleryResponse(
         event=preview,
         photos=[_map_public_photo(photo) for photo in photo_records],
@@ -368,6 +542,7 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
                 date=event.date,
                 tags=event.tags,
                 allowAnyoneUpload=event.allow_anyone_upload,
+                privateGallery=event.private_gallery,
                 coverUrl=event.cover_url,
                 hostName=creator.name if creator else "PictureMe Host",
                 photoCount=photo_counts.get(event.id, 0),
@@ -395,6 +570,8 @@ def _build_event_detail(
         date=event.date,
         tags=event.tags,
         allowAnyoneUpload=event.allow_anyone_upload,
+        privateGallery=event.private_gallery,
+        galleryAccessStatus=_get_public_gallery_access_status(event, user_id),
         status=event.status,
         coverUrl=event.cover_url,
         joinToken=event.join_token,
@@ -423,7 +600,7 @@ def _list_public_event_photos(event_id: str) -> list[PhotoRecord]:
     client = get_supabase_admin_client()
     try:
         response = client.table("photos").select(
-            "id,event_id,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
+            "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,original_filename,uploaded_at,face_count"
         ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
     except Exception as exc:
         if not _is_missing_original_filename_column(exc):
@@ -431,7 +608,7 @@ def _list_public_event_photos(event_id: str) -> list[PhotoRecord]:
 
         try:
             response = client.table("photos").select(
-                "id,event_id,cloudinary_url,thumbnail_url,uploaded_at,face_count"
+                "id,event_id,uploaded_by,uploader_name,cloudinary_url,thumbnail_url,uploaded_at,face_count"
             ).eq("event_id", event_id).order("uploaded_at", desc=True).execute()
         except Exception as retry_exc:
             raise AppError("PictureMe could not load this public gallery", code="GALLERY_FETCH_FAILED", status=500) from retry_exc
@@ -447,6 +624,10 @@ def _normalize_photo(row: dict) -> PhotoRecord:
     face_count = row.get("face_count")
     if face_count is None:
         row = {**row, "face_count": 0}
+    if "uploaded_by" not in row:
+        row = {**row, "uploaded_by": None}
+    if "uploader_name" not in row:
+        row = {**row, "uploader_name": None}
     return PhotoRecord.model_validate(row)
 
 
@@ -456,6 +637,8 @@ def _map_public_photo(photo: PhotoRecord) -> PhotoResponse:
         cloudinaryUrl=photo.cloudinary_url,
         thumbnailUrl=photo.thumbnail_url,
         originalFilename=photo.original_filename,
+        uploaderName=photo.uploader_name,
+        uploaderIsAnonymous=photo.uploaded_by is None,
         uploadedAt=photo.uploaded_at,
         faceCount=photo.face_count,
     )
@@ -669,6 +852,153 @@ def _get_public_user_by_id(user_id: str) -> PublicUserRecord:
     if not users:
         raise AppError("PictureMe could not resolve the event owner", code="USER_NOT_FOUND", status=404)
     return users[0]
+
+
+def _get_public_user_by_email(email: str) -> PublicUserRecord:
+    try:
+        response = get_supabase_admin_client().table("users").select(
+            "id,email,name,avatar_url,face_indexed_at,rekognition_face_id"
+        ).eq("email", email).maybe_single().execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not look up that user", code="USER_FETCH_FAILED", status=500) from exc
+
+    if not response.data:
+        raise AppError("No signed-up PictureMe user was found for that email", code="USER_NOT_FOUND", status=404)
+    return PublicUserRecord.model_validate(response.data)
+
+
+def _get_public_gallery_access_status(event: EventRecord, user_id: str) -> GalleryAccessStatus:
+    if user_id == event.creator_id:
+        return "owner"
+    membership = _get_membership(event.id, user_id)
+    if membership and membership.role == "admin":
+        return "approved"
+    return _get_gallery_access_status(event.id, user_id) or "none"
+
+
+def _get_effective_gallery_access_status(
+    user_id: str,
+    event: EventRecord,
+    access_by_user_id: dict[str, GalleryAccessStatus],
+) -> GalleryAccessStatus:
+    if user_id == event.creator_id:
+        return "owner"
+    membership = _get_membership(event.id, user_id)
+    if membership and membership.role == "admin":
+        return "approved"
+    return access_by_user_id.get(user_id, "none")
+
+
+def _can_view_private_gallery(user_id: str, event: EventRecord) -> bool:
+    return _get_public_gallery_access_status(event, user_id) in {"owner", "approved"}
+
+
+def _get_gallery_access_status(event_id: str, user_id: str) -> GalleryAccessStatus | None:
+    try:
+        response = get_supabase_admin_client().table("event_gallery_access").select("status").eq(
+            "event_id", event_id
+        ).eq("user_id", user_id).maybe_single().execute()
+    except Exception as exc:
+        if _is_missing_gallery_access_table(exc):
+            return None
+        raise AppError("PictureMe could not verify gallery access", code="ACCESS_FETCH_FAILED", status=500) from exc
+
+    status = response.data.get("status") if response.data else None
+    return status if status in {"pending", "approved"} else None
+
+
+def _get_gallery_access_statuses(event_id: str) -> dict[str, GalleryAccessStatus]:
+    rows = _fetch_gallery_access_rows(event_id)
+    return {
+        str(row["user_id"]): row["status"]
+        for row in rows
+        if row.get("user_id") and row.get("status") in {"pending", "approved"}
+    }
+
+
+def _fetch_gallery_access_rows(event_id: str) -> list[dict]:
+    try:
+        response = get_supabase_admin_client().table("event_gallery_access").select(
+            "id,event_id,user_id,status,requested_at,approved_at"
+        ).eq("event_id", event_id).order("requested_at").execute()
+    except Exception as exc:
+        if _is_missing_gallery_access_table(exc):
+            return []
+        raise AppError("PictureMe could not load gallery access", code="ACCESS_FETCH_FAILED", status=500) from exc
+    return response.data or []
+
+
+def _upsert_gallery_access(*, event_id: str, user_id: str, status: str, invited_by: str) -> dict:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "event_id": event_id,
+        "user_id": user_id,
+        "status": status,
+        "invited_by": invited_by,
+        "approved_at": now.isoformat() if status == "approved" else None,
+    }
+    try:
+        response = get_supabase_admin_client().table("event_gallery_access").upsert(
+            payload,
+            on_conflict="event_id,user_id",
+        ).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not save gallery access", code="ACCESS_SAVE_FAILED", status=500) from exc
+    row = get_first_row(response.data)
+    if row:
+        return row
+    return {
+        "id": f"{event_id}:{user_id}",
+        "event_id": event_id,
+        "user_id": user_id,
+        "status": status,
+        "requested_at": now,
+        "approved_at": now if status == "approved" else None,
+    }
+
+
+def _get_upload_counts_by_user(event_id: str) -> dict[str, int]:
+    try:
+        response = get_supabase_admin_client().table("photos").select("uploaded_by").eq("event_id", event_id).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not load uploader counts", code="PHOTO_FETCH_FAILED", status=500) from exc
+    counts: dict[str, int] = {}
+    for row in response.data or []:
+        uploaded_by = row.get("uploaded_by")
+        if uploaded_by:
+            counts[str(uploaded_by)] = counts.get(str(uploaded_by), 0) + 1
+    return counts
+
+
+def _list_anonymous_uploaders(event_id: str) -> list[EventPersonResponse]:
+    try:
+        response = get_supabase_admin_client().table("upload_jobs").select(
+            "id,uploader_name,total_files"
+        ).eq("event_id", event_id).is_("created_by", None).execute()
+    except Exception as exc:
+        raise AppError("PictureMe could not load anonymous uploaders", code="UPLOADERS_FETCH_FAILED", status=500) from exc
+
+    counts: dict[str, int] = {}
+    for row in response.data or []:
+        name = str(row.get("uploader_name") or "Anonymous uploader").strip() or "Anonymous uploader"
+        counts[name] = counts.get(name, 0) + int(row.get("total_files") or 0)
+
+    return [
+        EventPersonResponse(
+            id=f"anonymous-{index}",
+            name=name,
+            kind="anonymous",
+            uploadCount=count,
+        )
+        for index, (name, count) in enumerate(sorted(counts.items()), start=1)
+    ]
+
+
+def _is_missing_gallery_access_table(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return "event_gallery_access" in message and (
+        "does not exist" in message or "schema cache" in message or "pgrst" in message
+    )
 
 
 def _get_public_users_by_ids(user_ids: list[str]) -> list[PublicUserRecord]:

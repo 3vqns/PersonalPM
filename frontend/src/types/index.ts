@@ -2,6 +2,7 @@ import type { Session } from "@supabase/supabase-js";
 
 export type EventRole = "creator" | "admin" | "member";
 export type EventStatus = "active" | "expired";
+export type GalleryAccessStatus = "owner" | "approved" | "pending" | "none";
 
 export interface AuthUser {
   id: string;
@@ -24,6 +25,7 @@ export interface EventSummary {
   date: string;
   tags: string[];
   allowAnyoneUpload: boolean;
+  privateGallery?: boolean;
   coverUrl?: string;
   hostName?: string;
   photoCount: number;
@@ -45,6 +47,8 @@ export interface EventDetail {
   date: string;
   tags: string[];
   allowAnyoneUpload: boolean;
+  privateGallery: boolean;
+  galleryAccessStatus: GalleryAccessStatus;
   status: EventStatus;
   coverUrl?: string;
   joinToken: string;
@@ -72,6 +76,8 @@ export interface JoinPreview {
   joinToken: string;
   alreadyJoined?: boolean;
   allowAnyoneUpload?: boolean;
+  privateGallery?: boolean;
+  galleryAccessStatus?: GalleryAccessStatus;
 }
 
 export interface PublicEventGalleryResponse {
@@ -84,6 +90,8 @@ export interface Photo {
   cloudinaryUrl: string;
   thumbnailUrl?: string;
   originalFilename?: string;
+  uploaderName?: string;
+  uploaderIsAnonymous?: boolean;
   uploadedAt: string;
   faceCount: number;
 }
@@ -101,6 +109,40 @@ export interface EventMember {
   role: EventRole;
   joinedAt: string;
   avatarUrl?: string;
+}
+
+export interface GalleryAccessEntry {
+  id: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string;
+  };
+  status: "pending" | "approved";
+  requestedAt: string;
+  approvedAt?: string;
+}
+
+export interface GalleryAccessRequestResponse {
+  status: GalleryAccessStatus;
+}
+
+export interface EventPerson {
+  id: string;
+  name: string;
+  email?: string;
+  role?: EventRole;
+  joinedAt?: string;
+  avatarUrl?: string;
+  kind: "member" | "anonymous";
+  uploadCount: number;
+  galleryAccessStatus?: GalleryAccessStatus;
+}
+
+export interface EventPeopleResponse {
+  event: EventDetail;
+  people: EventPerson[];
 }
 
 export interface DashboardResponse {
