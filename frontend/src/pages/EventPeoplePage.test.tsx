@@ -81,4 +81,48 @@ describe("EventPeoplePage", () => {
       );
     });
   });
+
+  it("labels redacted member emails without marking the member anonymous", async () => {
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/event-1/people") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Launch Party",
+            date: "2026-05-10",
+            status: "active",
+            joinToken: "join-token",
+            role: "member",
+            privateGallery: false,
+            galleryAccessStatus: "none",
+            creator: { id: "creator-1", name: "Taylor" },
+            counts: { allPhotos: 8, myPhotos: 1, members: 2 },
+          },
+          people: [
+            {
+              id: "user-2",
+              name: "Alex",
+              email: "",
+              role: "member",
+              kind: "member",
+              uploadCount: 1,
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1/people"]}>
+        <Routes>
+          <Route path="/event/:id/people" element={<EventPeoplePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Email hidden")).toBeInTheDocument();
+    expect(screen.queryByText("Anonymous uploader")).not.toBeInTheDocument();
+  });
 });

@@ -238,18 +238,20 @@ def delete_event(current_user: AuthenticatedUser, *, event_id: str) -> None:
 def list_event_members(current_user: AuthenticatedUser, *, event_id: str) -> list[EventMemberResponse]:
     """Return the event member list for creators and members."""
     event = _get_event_or_404(event_id)
-    _require_event_role(current_user.user_id, event)
+    viewer_role = _require_event_role(current_user.user_id, event)
+    can_view_member_emails = viewer_role in {"creator", "admin"}
     rows = _fetch_event_member_rows(event_id)
 
     members: list[EventMemberResponse] = []
     for row in rows:
         member_user = _get_public_user_by_id(row.user_id)
+        email = member_user.email if can_view_member_emails or row.user_id == current_user.user_id else ""
         members.append(
             EventMemberResponse(
                 id=row.id,
                 userId=row.user_id,
                 name=member_user.name,
-                email=member_user.email,
+                email=email,
                 role=row.role,
                 joinedAt=row.joined_at,
                 avatarUrl=member_user.avatar_url,

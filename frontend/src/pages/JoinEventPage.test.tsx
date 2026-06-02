@@ -190,6 +190,51 @@ describe("JoinEventPage", () => {
     expect(mockedSignIn).not.toHaveBeenCalled();
   });
 
+  it("shows the auth invite flow for private gallery links", async () => {
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: null,
+      user: null,
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token/gallery") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Private Event",
+            date: "2026-06-21",
+            hostName: "Avery",
+            photoCount: 42,
+            memberCount: 9,
+            status: "active",
+            joinToken: "demo-token",
+            privateGallery: true,
+          },
+          photos: [],
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/join/demo-token"]}>
+        <Routes>
+          <Route path="/join/:token" element={<JoinEventPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Private Event")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
+    expect(screen.queryByText("No photos uploaded yet")).not.toBeInTheDocument();
+  });
+
   it("does not start Google auth while the public gallery is directly available", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
