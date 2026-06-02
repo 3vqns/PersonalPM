@@ -86,7 +86,7 @@ const demoEvent: EventDetail = {
   id: "demo-event",
   name: "Spring Gala",
   description:
-    "A private gallery for a PictureMe demo event with ceremony highlights, guest portraits, candid reception moments, and sponsor coverage collected throughout the evening.",
+    "A PictureMe demo event with ceremony highlights, guest portraits, candid reception moments, and sponsor coverage collected throughout the evening.",
   date: "2026-05-10",
   location: "Downtown conference center",
   expiresAt: "2026-06-09",
@@ -245,10 +245,7 @@ export async function getDemoApiResponse<T>(
           typeof options.body.description === "string"
             ? options.body.description
             : demoEvent.description,
-        privateGallery:
-          typeof options.body.privateGallery === "boolean"
-            ? options.body.privateGallery
-            : demoEvent.privateGallery,
+        privateGallery: false,
       } as T;
     }
 

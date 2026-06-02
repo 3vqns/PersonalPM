@@ -359,7 +359,7 @@ describe("JoinEventPage", () => {
     expect(mockedSignIn).not.toHaveBeenCalled();
   });
 
-  it("shows the auth invite flow for private gallery links", async () => {
+  it("shows the auth invite flow for join links", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: null,
@@ -374,14 +374,14 @@ describe("JoinEventPage", () => {
       if (path === "/api/events/join/demo-token") {
         return {
           id: "event-1",
-          name: "Private Event",
+          name: "Demo Event",
           date: "2026-06-21",
           hostName: "Avery",
           photoCount: 42,
           memberCount: 9,
           status: "active",
           joinToken: "demo-token",
-          privateGallery: true,
+          privateGallery: false,
         };
       }
 
@@ -396,12 +396,12 @@ describe("JoinEventPage", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Private Event")).toBeInTheDocument();
+    expect(await screen.findByText("Demo Event")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
     expect(screen.queryByText("No photos uploaded yet")).not.toBeInTheDocument();
   });
 
-  it("sends a pending request for signed-in private gallery links", async () => {
+  it("joins signed-in users from join links", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -423,14 +423,14 @@ describe("JoinEventPage", () => {
           eventId: "event-1",
           alreadyJoined: false,
           role: "member",
-          galleryAccessStatus: "pending",
+          galleryAccessStatus: "approved",
         };
       }
 
       if (path === "/api/events/join/demo-token") {
         return {
           id: "event-1",
-          name: "Private Event",
+          name: "Demo Event",
           date: "2026-06-21",
           hostName: "Avery",
           photoCount: 42,
@@ -438,7 +438,7 @@ describe("JoinEventPage", () => {
           status: "active",
           joinToken: "demo-token",
           alreadyJoined: false,
-          privateGallery: true,
+          privateGallery: false,
         };
       }
 
@@ -449,7 +449,7 @@ describe("JoinEventPage", () => {
       <MemoryRouter initialEntries={["/join/demo-token"]}>
         <Routes>
           <Route path="/join/:token" element={<JoinEventPage />} />
-          <Route path="/event/:eventId" element={<p>Joined private gallery</p>} />
+          <Route path="/event/:eventId" element={<p>Joined event gallery</p>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -459,8 +459,7 @@ describe("JoinEventPage", () => {
         method: "POST",
       });
     });
-    expect(await screen.findByText("Request to join Private Event sent!")).toBeInTheDocument();
-    expect(screen.queryByText("Joined private gallery")).not.toBeInTheDocument();
+    expect(await screen.findByText("Joined event gallery")).toBeInTheDocument();
   });
 
   it("shows the public join auth flow without starting Google automatically", async () => {

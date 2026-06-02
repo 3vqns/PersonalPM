@@ -641,9 +641,9 @@ describe("EventGalleryPage", () => {
 
     mockedApiFetch.mockRejectedValue(
       new ApiError({
-        message: "Request access before viewing this private gallery",
+        message: "You do not have access to this event",
         status: 403,
-        code: "GALLERY_ACCESS_REQUIRED",
+        code: "FORBIDDEN",
         requestId: "request-1",
         path: "/api/events/event-1",
       }),
@@ -660,7 +660,7 @@ describe("EventGalleryPage", () => {
     expect(await screen.findByText("Gallery unavailable")).toBeInTheDocument();
     expect(screen.getByText(/You do not currently have access to this gallery/i)).toBeInTheDocument();
     expect(screen.getByText("Troubleshooting details")).toBeInTheDocument();
-    expect(screen.getByText("GALLERY_ACCESS_REQUIRED")).toBeInTheDocument();
+    expect(screen.getByText("FORBIDDEN")).toBeInTheDocument();
     expect(screen.getByText("request-1")).toBeInTheDocument();
   });
 });

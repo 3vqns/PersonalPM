@@ -32,7 +32,7 @@
 | `location` | text | Event location label, defaults to `TBD` |
 | `tags` | text[] | Multiple event tags used for dashboard filtering |
 | `allow_anyone_upload` | boolean | Opt-in flag that allows anonymous uploaders to submit photos with a typed name |
-| `private_gallery` | boolean | Opt-in flag requiring creator/admin/approved access before gallery photos can be viewed |
+| `private_gallery` | boolean | Dormant legacy flag. Current migrations force it to `false`; gallery viewing is membership-based |
 | `expires_at` | timestamp, nullable | Currently unused; reserved for future paid expiry behavior |
 | `creator_id` | uuid, FK → users | |
 | `join_token` | text, unique | Powers the `/join/[token]` URL |
@@ -55,7 +55,7 @@
 |---|---|---|
 | `id` | uuid, PK | |
 | `event_id` | uuid, FK → events | |
-| `user_id` | uuid, FK → users | Signed-up PictureMe user receiving or requesting private gallery access |
+| `user_id` | uuid, FK → users | Dormant private-gallery access user reference retained for future work |
 | `status` | enum | `pending` / `approved` |
 | `requested_at` | timestamp | |
 | `approved_at` | timestamp, nullable | Set when access is approved |
@@ -122,8 +122,7 @@
 - **One user → one reusable face profile.** A user has 3–5 enrollment selfies stored privately in Supabase Storage and referenced by `face_profile_images`. If there are no rows, they effectively opted out.
 - **One event → one Rekognition collection.** All photos from an event are indexed into this collection.
 - **Anonymous upload is event-scoped and opt-in.** Events with `allow_anyone_upload` can accept uploads without an account, storing a typed `uploader_name` on the upload job.
-- **Private gallery access is event-scoped.** Events with `private_gallery` only expose photos to creators, admins, and users with an approved `event_gallery_access` row. Public events use `event_members` only; they do not depend on `event_gallery_access`.
-- Pending private-gallery requests do not create `event_members` rows. Approval creates or repairs membership so approved users then appear on dashboards and can view the private gallery.
+- **Gallery viewing is membership-based.** Owners, admins, and event members can view gallery photos. Private-gallery behavior is disabled, and current code does not depend on `event_gallery_access`.
 - **Photo uploader attribution is stored per photo.** `photos.uploader_name` keeps the display name shown in the lightbox, using the signed-in user's public profile name or the anonymous uploader's typed name. Historical photos are backfilled from `photos.uploaded_by → users.name` or `upload_job_files → upload_jobs.uploader_name` when that linkage exists.
 - **`user_photo_matches` is the core join table.** A row here means "this user appears in this photo." This powers the My Photos tab.
 - **`event_members.role`** controls upload access. `member` means view only. `admin` means upload photos. `creator` means full event control.
@@ -171,14 +170,9 @@
 | POST | `/api/events` | User | Create event + Rekognition collection |
 | GET | `/api/events/{id}` | Member | Get event details + photo counts |
 | GET | `/api/events/join/{token}` | Public | Get limited event preview by join token |
-| POST | `/api/events/join/{token}` | User | Join by QR/link token and repair membership/gallery access |
+| POST | `/api/events/join/{token}` | User | Join by QR/link token and repair membership |
 | POST | `/api/events/{id}/join` | User | Join event + enqueue background match job |
 | GET | `/api/events/{id}/people` | Member | Event people list, including signed-in members and anonymous uploaders |
-| POST | `/api/events/{id}/access-requests` | Member | Request private gallery access |
-| GET | `/api/events/{id}/gallery-access` | Creator | List private gallery access rows |
-| POST | `/api/events/{id}/gallery-access` | Creator | Add a signed-up user by email to private gallery access |
-| PATCH | `/api/events/{id}/gallery-access/{user_id}` | Creator | Approve or mark a private gallery access row pending |
-| DELETE | `/api/events/{id}/gallery-access/{user_id}` | Creator | Remove private gallery access for a user |
 | POST | `/api/events/{id}/photos` | Admin | Upload photos → Cloudinary + `IndexFaces` |
 | GET | `/api/events/{id}/photos` | Member | All photos for gallery |
 | GET | `/api/events/{id}/my-photos` | Member | Matched photos for current user |

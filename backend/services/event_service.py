@@ -119,7 +119,7 @@ async def create_event(
                 "location": cleaned_location,
                 "tags": _normalize_tags(tags),
                 "allow_anyone_upload": allow_anyone_upload,
-                "private_gallery": private_gallery,
+                "private_gallery": False,
                 "join_token": join_token,
                 "rekognition_collection_id": collection_id,
                 "status": "active",
@@ -202,7 +202,7 @@ def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: Eve
     if payload.allow_anyone_upload is not None:
         update_payload["allow_anyone_upload"] = payload.allow_anyone_upload
     if payload.private_gallery is not None:
-        update_payload["private_gallery"] = payload.private_gallery
+        update_payload["private_gallery"] = False
 
     if update_payload:
         try:
@@ -351,32 +351,12 @@ def remove_event_member(
 
 
 def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> GalleryAccessRequestResponse:
-    """Create or reuse a pending gallery access request for the current user."""
+    """Compatibility endpoint that now repairs public event membership."""
     event = _get_event_or_404(event_id)
-    if not event.private_gallery:
-        _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
-        return GalleryAccessRequestResponse(status="approved")
     if current_user.user_id == event.creator_id:
         return GalleryAccessRequestResponse(status="owner")
-
-    membership = _get_membership(event.id, current_user.user_id)
-    if membership and membership.role == "admin":
-        return GalleryAccessRequestResponse(status="approved")
-
-    existing_status = _get_gallery_access_status(event.id, current_user.user_id)
-    if existing_status:
-        if existing_status == "approved":
-            _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
-        return GalleryAccessRequestResponse(status=existing_status)
-
-    _upsert_gallery_access(
-        event_id=event.id,
-        user_id=current_user.user_id,
-        status="pending",
-        invited_by=event.creator_id,
-    )
-
-    return GalleryAccessRequestResponse(status="pending")
+    _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
+    return GalleryAccessRequestResponse(status="approved")
 
 
 def list_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> list[GalleryAccessResponse]:
@@ -498,7 +478,7 @@ def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) 
         location=event.location,
         tags=event.tags,
         allowAnyoneUpload=event.allow_anyone_upload,
-        privateGallery=event.private_gallery,
+        privateGallery=False,
         galleryAccessStatus=_get_public_gallery_access_status(event, current_user.user_id) if current_user else None,
         hostName=creator.name,
         coverUrl=event.cover_url,
@@ -514,12 +494,7 @@ def get_public_event_gallery(token: str, current_user: AuthenticatedUser | None 
     """Return the public event gallery for an invite token."""
     preview = get_join_preview(token, current_user=current_user)
     event = _get_event_by_join_token(token)
-    if event.private_gallery and (
-        current_user is None or not _can_view_private_gallery(current_user.user_id, event)
-    ):
-        photo_records = []
-    else:
-        photo_records = _list_public_event_photos(event.id)
+    photo_records = _list_public_event_photos(event.id)
     return PublicEventGalleryResponse(
         event=preview,
         photos=[_map_public_photo(photo) for photo in photo_records],
@@ -561,30 +536,11 @@ def _join_event_record(
     membership = _get_membership(event.id, current_user.user_id)
     already_joined = membership is not None
 
-    if not event.private_gallery and not already_joined:
+    if not already_joined:
         _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
         membership = _get_membership(event.id, current_user.user_id)
 
     gallery_access_status: GalleryAccessStatus = "approved"
-    if event.private_gallery and membership is not None and membership.role == "admin":
-        gallery_access_status = "approved"
-    elif event.private_gallery:
-        existing_status = _get_gallery_access_status(event.id, current_user.user_id)
-        if existing_status == "approved":
-            if membership is None:
-                _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
-                membership = _get_membership(event.id, current_user.user_id)
-            gallery_access_status = "approved"
-        elif existing_status == "pending":
-            gallery_access_status = "pending"
-        else:
-            _upsert_gallery_access(
-                event_id=event.id,
-                user_id=current_user.user_id,
-                status="pending",
-                invited_by=event.creator_id,
-            )
-            gallery_access_status = "pending"
 
     if gallery_access_status == "approved" and public_user.has_face_profile:
         background_tasks.add_task(
@@ -625,7 +581,7 @@ def _build_event_summaries(user_id: str, events: list[EventRecord]) -> list[Even
                 location=event.location,
                 tags=event.tags,
                 allowAnyoneUpload=event.allow_anyone_upload,
-                privateGallery=event.private_gallery,
+                privateGallery=False,
                 coverUrl=event.cover_url,
                 hostName=creator.name if creator else "PictureMe Host",
                 photoCount=photo_counts.get(event.id, 0),
@@ -654,7 +610,7 @@ def _build_event_detail(
         location=event.location,
         tags=event.tags,
         allowAnyoneUpload=event.allow_anyone_upload,
-        privateGallery=event.private_gallery,
+        privateGallery=False,
         galleryAccessStatus=_get_public_gallery_access_status(event, user_id),
         status=event.status,
         coverUrl=event.cover_url,
@@ -1001,11 +957,7 @@ def _get_public_gallery_access_status(event: EventRecord, user_id: str) -> Galle
     if user_id == event.creator_id:
         return "owner"
     membership = _get_membership(event.id, user_id)
-    if not event.private_gallery:
-        return "approved" if membership else "none"
-    if membership and membership.role == "admin":
-        return "approved"
-    return _get_gallery_access_status(event.id, user_id) or "none"
+    return "approved" if membership else "none"
 
 
 def _get_effective_gallery_access_status(
@@ -1016,15 +968,7 @@ def _get_effective_gallery_access_status(
     if user_id == event.creator_id:
         return "owner"
     membership = _get_membership(event.id, user_id)
-    if not event.private_gallery:
-        return "approved" if membership else "none"
-    if membership and membership.role == "admin":
-        return "approved"
-    return access_by_user_id.get(user_id, "none")
-
-
-def _can_view_private_gallery(user_id: str, event: EventRecord) -> bool:
-    return _get_public_gallery_access_status(event, user_id) in {"owner", "approved"}
+    return "approved" if membership else "none"
 
 
 def _get_gallery_access_status(event_id: str, user_id: str) -> GalleryAccessStatus | None:
