@@ -1,6 +1,6 @@
 import { AlertCircle, ArrowRight, CalendarDays, Images, Upload, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { FaceScanCapture } from "../components/FaceScanCapture";
 import { GoogleAuthButton } from "../components/GoogleAuthButton";
@@ -43,6 +43,7 @@ export function JoinEventPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Anonymous upload state
   const [namePromptOpen, setNamePromptOpen] = useState(false);
+  const [namePromptIntent, setNamePromptIntent] = useState<"enterGallery" | "upload">("upload");
   const [uploaderNameDraft, setUploaderNameDraft] = useState("");
   const [anonUploadOpen, setAnonUploadOpen] = useState(false);
   const [anonymousUploaderName, setAnonymousUploaderName] = useState("");
@@ -232,6 +233,32 @@ export function JoinEventPage() {
     await handleJoin();
   }
 
+  async function loadPublicGalleryForAnonymous() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const galleryResponse = await apiFetch<PublicEventGalleryResponse>(
+        `/api/events/join/${token}/gallery`,
+        { auth: false },
+      );
+      setPublicGallery(galleryResponse);
+      if (!anonymousUploaderName.trim()) {
+        setNamePromptIntent("enterGallery");
+        setUploaderNameDraft("");
+        setNamePromptOpen(true);
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "PictureMe could not open this gallery.",
+      );
+      setDebugError(requestError instanceof ApiError ? requestError : null);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (loading || authLoading) {
     return (
       <div className="page-shell flex min-h-[60vh] items-center justify-center">
@@ -262,6 +289,11 @@ export function JoinEventPage() {
     const allowUpload = Boolean(preview.allowAnyoneUpload);
 
     function handleAnonUploadClick() {
+      if (anonymousUploaderName.trim()) {
+        setAnonUploadOpen(true);
+        return;
+      }
+      setNamePromptIntent("upload");
       setUploaderNameDraft("");
       setNamePromptOpen(true);
     }
@@ -276,13 +308,22 @@ export function JoinEventPage() {
       handleAnonUploadClick();
     }
 
-    function handleNamePromptSubmit(e: React.FormEvent<HTMLFormElement>) {
+    function handleNamePromptSubmit(e: FormEvent<HTMLFormElement>) {
       e.preventDefault();
       const trimmed = uploaderNameDraft.trim();
       if (!trimmed) return;
       setAnonymousUploaderName(trimmed);
       setNamePromptOpen(false);
-      setAnonUploadOpen(true);
+      if (namePromptIntent === "upload") {
+        setAnonUploadOpen(true);
+      }
+    }
+
+    function closeNamePrompt() {
+      setNamePromptOpen(false);
+      if (namePromptIntent === "enterGallery") {
+        setPublicGallery(null);
+      }
     }
 
     return (
@@ -301,19 +342,23 @@ export function JoinEventPage() {
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
             style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
             onClick={(e) => {
-              if (e.target === e.currentTarget) setNamePromptOpen(false);
+              if (e.target === e.currentTarget) closeNamePrompt();
             }}
           >
             <div className="surface-card w-full max-w-sm space-y-5 p-6">
               <div>
                 <h2 className="text-xl text-ink">What&apos;s your name?</h2>
                 <p className="mt-1 text-sm text-slate">
-                  We&apos;ll attach your name to the photos you upload.
+                  We&apos;ll attach your name to any photos you upload.
                 </p>
               </div>
               <form className="space-y-4" onSubmit={handleNamePromptSubmit}>
+                <label className="sr-only" htmlFor="anonymous-uploader-name">
+                  Your name
+                </label>
                 <div className="field-shell">
                   <input
+                    id="anonymous-uploader-name"
                     className="field-input"
                     placeholder="Jordan Lee"
                     value={uploaderNameDraft}
@@ -327,7 +372,7 @@ export function JoinEventPage() {
                   <button
                     type="button"
                     className="secondary-button flex-1"
-                    onClick={() => setNamePromptOpen(false)}
+                    onClick={closeNamePrompt}
                   >
                     Cancel
                   </button>
@@ -336,7 +381,7 @@ export function JoinEventPage() {
                     className="primary-button flex-1"
                     disabled={!uploaderNameDraft.trim()}
                   >
-                    Continue to Upload
+                    {namePromptIntent === "upload" ? "Continue to upload" : "Continue to gallery"}
                   </button>
                 </div>
               </form>
@@ -625,11 +670,11 @@ export function JoinEventPage() {
                     </div>
                   ) : null}
 
-                  <button
-                    type="submit"
-                    className="primary-button w-full"
-                    disabled={submitting}
-                  >
+	                  <button
+	                    type="submit"
+	                    className="primary-button w-full"
+	                    disabled={submitting}
+	                  >
                     {submitting
                       ? mode === "signup"
                         ? "Creating account..."
@@ -637,9 +682,19 @@ export function JoinEventPage() {
                       : mode === "signup"
                         ? "Create account"
                         : "Log in"}
-                  </button>
-                </form>
-              </div>
+	                  </button>
+	                </form>
+	                {preview.allowAnyoneUpload ? (
+	                  <button
+	                    type="button"
+	                    className="secondary-button w-full"
+	                    disabled={submitting}
+	                    onClick={() => void loadPublicGalleryForAnonymous()}
+	                  >
+	                    {submitting ? "Opening gallery..." : "Continue without logging in"}
+	                  </button>
+	                ) : null}
+	              </div>
             )}
           </div>
         </div>
