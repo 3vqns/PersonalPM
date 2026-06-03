@@ -60,10 +60,12 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(getFaceBannerDismissed);
   const [activeTab, setActiveTab] = useState<DashboardTab>("events");
   const [activeFilter, setActiveFilter] = useState<DashboardFilter>("All");
   const [searchValue, setSearchValue] = useState("");
+  const [filterKeyword, setFilterKeyword] = useState("");
   const [favoriteIds, setFavoriteIdsState] =
     useState<string[]>(getFavoriteEventIds);
 
@@ -125,6 +127,7 @@ export function DashboardPage() {
     })),
   ];
   const normalizedSearch = searchValue.trim().toLowerCase();
+  const normalizedFilterKeyword = filterKeyword.trim().toLowerCase();
   const filteredEvents = dashboardEvents
     .filter(({ event }) => {
       if (!matchesTab(event, activeTab, favoriteIds)) return false;
@@ -139,6 +142,13 @@ export function DashboardPage() {
         .filter(Boolean)
         .some((value) => value?.toLowerCase().includes(normalizedSearch));
     })
+    .filter(({ event }) => {
+      if (!normalizedFilterKeyword) return true;
+
+      return [event.description, ...event.tags]
+        .filter(Boolean)
+        .some((value) => value?.toLowerCase().includes(normalizedFilterKeyword));
+    })
     .sort((left, right) =>
       new Date(right.event.date).getTime() - new Date(left.event.date).getTime(),
     );
@@ -152,12 +162,14 @@ export function DashboardPage() {
     activeTab,
     activeFilter,
     normalizedSearch,
+    normalizedFilterKeyword,
     dashboardEventsCount: dashboardEvents.length,
     onCreate: () => setCreateOpen(true),
     onReset: () => {
       setActiveTab("events");
       setActiveFilter("All");
       setSearchValue("");
+      setFilterKeyword("");
     },
   });
 
@@ -167,6 +179,19 @@ export function DashboardPage() {
         <CreateEventModal
           onClose={() => setCreateOpen(false)}
           onCreated={(eventId) => navigate(`/event/${eventId}?created=1`)}
+        />
+      ) : null}
+      {filterOpen ? (
+        <DashboardFilterModal
+          activeFilter={activeFilter}
+          keyword={filterKeyword}
+          onActiveFilterChange={setActiveFilter}
+          onKeywordChange={setFilterKeyword}
+          onClear={() => {
+            setActiveFilter("All");
+            setFilterKeyword("");
+          }}
+          onClose={() => setFilterOpen(false)}
         />
       ) : null}
 
@@ -241,14 +266,10 @@ export function DashboardPage() {
                 </button>
               ))}
               <button
-                type="button"
-                className="tab-pill inline-flex items-center gap-2 whitespace-nowrap border border-[#e3d6c8] bg-[#fff9f2]/75 text-ink hover:bg-white"
-                onClick={() => {
-                  setActiveTab("events");
-                  setActiveFilter("All");
-                  setSearchValue("");
-                }}
-              >
+	                type="button"
+	                className="tab-pill inline-flex items-center gap-2 whitespace-nowrap border border-[#e3d6c8] bg-[#fff9f2]/75 text-ink hover:bg-white"
+	                onClick={() => setFilterOpen(true)}
+	              >
                 <SlidersHorizontal className="h-4 w-4" />
                 Filters
               </button>
@@ -339,12 +360,14 @@ export function DashboardPage() {
               activeTab,
               normalizedSearch,
               activeFilter,
+              normalizedFilterKeyword,
               dashboardEventsCount: dashboardEvents.length,
             })}
             description={getEmptyStateDescription({
               activeTab,
               normalizedSearch,
               activeFilter,
+              normalizedFilterKeyword,
               dashboardEventsCount: dashboardEvents.length,
             })}
             cta={emptyStateCta}
@@ -354,7 +377,7 @@ export function DashboardPage() {
     </div>
   );
 
-  function handleToggleFavorite(eventId: string) {
+function handleToggleFavorite(eventId: string) {
     setFavoriteIdsState((current) => {
       const next = current.includes(eventId)
         ? current.filter((value) => value !== eventId)
@@ -363,6 +386,71 @@ export function DashboardPage() {
       return next;
     });
   }
+}
+
+function DashboardFilterModal({
+  activeFilter,
+  keyword,
+  onActiveFilterChange,
+  onKeywordChange,
+  onClear,
+  onClose,
+}: {
+  activeFilter: DashboardFilter;
+  keyword: string;
+  onActiveFilterChange: (filter: DashboardFilter) => void;
+  onKeywordChange: (keyword: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title="Filter events" onClose={onClose} className="sm:max-w-xl">
+      <div className="space-y-5">
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-ink">Description or tag keyword</span>
+          <div className="field-shell">
+            <input
+              className="field-input"
+              value={keyword}
+              onChange={(event) => onKeywordChange(event.target.value)}
+              placeholder="Search descriptions and tags"
+              autoFocus
+            />
+          </div>
+        </label>
+
+        <div className="space-y-2">
+          <span className="text-sm font-medium text-ink">Event tag</span>
+          <div className="flex flex-wrap gap-2">
+            {dashboardFilters.map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                className={cn(
+                  "rounded-full border px-4 py-2 text-sm font-medium transition",
+                  activeFilter === filter
+                    ? "border-[#4b3528] bg-ink text-[#fff8f0]"
+                    : "border-[#e3d6c8] bg-[#fff9f2]/75 text-ink hover:bg-white",
+                )}
+                onClick={() => onActiveFilterChange(filter)}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <button type="button" className="secondary-button flex-1" onClick={onClear}>
+            Clear filters
+          </button>
+          <button type="button" className="primary-button flex-1" onClick={onClose}>
+            Apply filters
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function CreateEventModal({
@@ -611,18 +699,20 @@ function getEmptyStateTitle({
   activeTab,
   normalizedSearch,
   activeFilter,
+  normalizedFilterKeyword,
   dashboardEventsCount,
 }: {
   activeTab: DashboardTab;
   normalizedSearch: string;
   activeFilter: DashboardFilter;
+  normalizedFilterKeyword: string;
   dashboardEventsCount: number;
 }) {
   if (activeTab === "favorites") {
     return "No favorites saved yet";
   }
 
-  if (normalizedSearch || activeFilter !== "All") {
+  if (normalizedSearch || activeFilter !== "All" || normalizedFilterKeyword) {
     return "No events match your search";
   }
 
@@ -637,18 +727,20 @@ function getEmptyStateDescription({
   activeTab,
   normalizedSearch,
   activeFilter,
+  normalizedFilterKeyword,
   dashboardEventsCount,
 }: {
   activeTab: DashboardTab;
   normalizedSearch: string;
   activeFilter: DashboardFilter;
+  normalizedFilterKeyword: string;
   dashboardEventsCount: number;
 }) {
   if (activeTab === "favorites") {
     return "Tap the heart on any event card to keep your most important galleries close.";
   }
 
-  if (normalizedSearch || activeFilter !== "All") {
+  if (normalizedSearch || activeFilter !== "All" || normalizedFilterKeyword) {
     return "Try another keyword or clear the filters to widen the gallery view.";
   }
 
@@ -663,6 +755,7 @@ function getEmptyStateCta({
   activeTab,
   activeFilter,
   normalizedSearch,
+  normalizedFilterKeyword,
   dashboardEventsCount,
   onCreate,
   onReset,
@@ -670,11 +763,12 @@ function getEmptyStateCta({
   activeTab: DashboardTab;
   activeFilter: DashboardFilter;
   normalizedSearch: string;
+  normalizedFilterKeyword: string;
   dashboardEventsCount: number;
   onCreate: () => void;
   onReset: () => void;
 }) {
-  if (activeTab === "favorites" || normalizedSearch || activeFilter !== "All") {
+  if (activeTab === "favorites" || normalizedSearch || activeFilter !== "All" || normalizedFilterKeyword) {
     return {
       label: "Reset filters",
       onClick: onReset,

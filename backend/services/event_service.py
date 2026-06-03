@@ -180,7 +180,13 @@ def get_event_detail(current_user: AuthenticatedUser, *, event_id: str) -> Event
     return _build_event_detail(event, current_user.user_id, role, creator)
 
 
-def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: EventUpdateRequest) -> EventDetailResponse:
+async def update_event(
+    current_user: AuthenticatedUser,
+    *,
+    event_id: str,
+    payload: EventUpdateRequest,
+    cover: UploadFile | None = None,
+) -> EventDetailResponse:
     """Update event metadata. Event owners and admins may edit event settings."""
     event = _get_event_or_404(event_id)
     _require_event_manager(current_user.user_id, event)
@@ -203,6 +209,11 @@ def update_event(current_user: AuthenticatedUser, *, event_id: str, payload: Eve
         update_payload["allow_anyone_upload"] = payload.allow_anyone_upload
     if payload.private_gallery is not None:
         update_payload["private_gallery"] = False
+    if await _has_upload_content(cover):
+        cover_url = await upload_event_cover(event_id=event_id, upload=cover)
+        if not cover_url:
+            raise AppError("PictureMe could not upload the event cover image", code="EVENT_COVER_UPLOAD_FAILED", status=502)
+        update_payload["cover_url"] = cover_url
 
     if update_payload:
         try:

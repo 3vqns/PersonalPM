@@ -567,6 +567,48 @@ def test_create_event_ignores_empty_cover_upload(monkeypatch) -> None:
     assert client.updated_event_payloads == []
 
 
+def test_update_event_uploads_replacement_cover(monkeypatch) -> None:
+    current_user = AuthenticatedUser(
+        user_id="creator-1",
+        email="creator@example.com",
+        access_token="token",
+        raw_user={"id": "creator-1", "email": "creator@example.com"},
+    )
+    event = EventRecord(
+        id="event-1",
+        creator_id="creator-1",
+        name="Launch Party",
+        description=None,
+        date=date(2026, 4, 18),
+        join_token="join-token",
+        rekognition_collection_id="collection-1",
+        cover_url="https://cdn.example.com/old-cover.jpg",
+        status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    client = _FakeClient()
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+    monkeypatch.setattr(
+        event_service,
+        "upload_event_cover",
+        lambda **_kwargs: asyncio.sleep(0, result="https://cdn.example.com/new-cover.jpg"),
+    )
+    monkeypatch.setattr(event_service, "get_event_detail", lambda *_args, **_kwargs: SimpleNamespace(id="event-1"))
+
+    asyncio.run(
+        event_service.update_event(
+            current_user,
+            event_id=event.id,
+            payload=event_service.EventUpdateRequest(),
+            cover=_build_upload_file("new-cover.jpg"),
+        )
+    )
+
+    assert client.updated_event_payloads == [{"cover_url": "https://cdn.example.com/new-cover.jpg"}]
+
+
 def test_get_membership_returns_none_when_no_membership_row(monkeypatch) -> None:
     class _NoMembershipTable:
         def select(self, *_args, **_kwargs):
