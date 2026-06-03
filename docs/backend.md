@@ -33,6 +33,7 @@ The backend in [backend](/Users/tervin23/Documents/AG/PersonalPM/backend) is the
 - Successful and failed API responses may include `X-Request-ID`; surface that in support/debug tooling when possible.
 - Invite-token lookup failures include a safe token fingerprint and token length in error details, and backend logs include the same fingerprint so frontend reports can be correlated without exposing raw invite tokens.
 - Multipart routes currently expected by the backend:
-  - `POST /api/account/face-profile`: `selfies` or `face` fields with 3 to 5 images
-  - `POST /api/events`: form fields for `name`, `date`, optional `description`
-  - `POST /api/events/{event_id}/photos`: repeated `photos` image files
+	- `POST /api/account/face-profile`: `selfies` or `face` fields with 3 to 5 images
+	- `POST /api/events`: form fields for `name`, `date`, optional `description`
+	- `PATCH /api/events/{event_id}`: JSON for metadata-only updates, or multipart form fields plus optional `cover` for thumbnail replacement
+	- `POST /api/events/{event_id}/photos`: repeated `photos` image files

@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from pydantic import ValidationError
 
 from backend.dependencies.auth import AuthenticatedUser, get_optional_authenticated_user, require_authenticated_user
@@ -145,11 +145,12 @@ async def get_event(
 @router.patch("/api/events/{event_id}", response_model=EventDetailResponse)
 async def patch_event(
     event_id: str,
-    payload: EventUpdateRequest,
+    request: Request,
     current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> EventDetailResponse:
     """Update one event's editable fields."""
-    return update_event(current_user, event_id=event_id, payload=payload)
+    payload, cover = await _parse_event_update_payload(request)
+    return await update_event(current_user, event_id=event_id, payload=payload, cover=cover)
 
 
 @router.delete("/api/events/{event_id}", status_code=204)
@@ -330,3 +331,47 @@ def _parse_event_create_payload(
         )
     except ValidationError as exc:
         raise AppError("Invalid event fields", code="VALIDATION_ERROR", status=422, details={"errors": exc.errors()}) from exc
+
+
+async def _parse_event_update_payload(request: Request) -> tuple[EventUpdateRequest, UploadFile | None]:
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        cover_value = form.get("cover")
+        cover = cover_value if _is_upload_file(cover_value) else None
+        try:
+            tags_value = form.get("tags")
+            parsed_tags = json.loads(str(tags_value or "[]"))
+        except json.JSONDecodeError as exc:
+            raise AppError("Event tags must be a JSON array", code="VALIDATION_ERROR", status=422) from exc
+
+        try:
+            return (
+                EventUpdateRequest(
+                    name=_optional_form_string(form.get("name")),
+                    date=_optional_form_string(form.get("date")),
+                    location=_optional_form_string(form.get("location")),
+                    description=_optional_form_string(form.get("description")),
+                    tags=parsed_tags,
+                    allow_anyone_upload=_optional_form_string(form.get("allow_anyone_upload")),
+                ),
+                cover,
+            )
+        except ValidationError as exc:
+            raise AppError("Invalid event fields", code="VALIDATION_ERROR", status=422, details={"errors": exc.errors()}) from exc
+
+    try:
+        payload = EventUpdateRequest.model_validate(await request.json())
+    except ValidationError as exc:
+        raise AppError("Invalid event fields", code="VALIDATION_ERROR", status=422, details={"errors": exc.errors()}) from exc
+    return payload, None
+
+
+def _optional_form_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _is_upload_file(value: object) -> bool:
+    return hasattr(value, "filename") and hasattr(value, "read") and hasattr(value, "seek")

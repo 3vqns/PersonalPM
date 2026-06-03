@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { EventSettingsPage } from "./EventSettingsPage";
@@ -92,5 +93,68 @@ describe("EventSettingsPage", () => {
 
     expect(await screen.findByText("Event settings")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete event/i })).not.toBeInTheDocument();
+  });
+
+  it("saves a changed event thumbnail with settings updates", async () => {
+    const user = userEvent.setup();
+    let patchBody: unknown;
+
+    mockedApiFetch.mockImplementation(async (path: string, options?: { method?: string; body?: unknown }) => {
+      if (path === "/api/events/event-1" && options?.method === "PATCH") {
+        patchBody = options.body;
+        return {
+          id: "event-1",
+          name: "Launch Party",
+          date: "2026-05-10",
+          description: "Event details",
+          location: "TBD",
+          coverUrl: "https://cdn.example.com/new-cover.jpg",
+          status: "active",
+          joinToken: "join-token",
+          role: "creator",
+          creator: { id: "creator-1", name: "Taylor" },
+          counts: { allPhotos: 8, myPhotos: 1, members: 4 },
+        };
+      }
+
+      if (path === "/api/events/event-1") {
+        return {
+          id: "event-1",
+          name: "Launch Party",
+          date: "2026-05-10",
+          description: "Event details",
+          location: "TBD",
+          coverUrl: "https://cdn.example.com/old-cover.jpg",
+          status: "active",
+          joinToken: "join-token",
+          role: "creator",
+          creator: { id: "creator-1", name: "Taylor" },
+          counts: { allPhotos: 8, myPhotos: 1, members: 4 },
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/event/event-1/settings"]}>
+        <Routes>
+          <Route path="/event/:id/settings" element={<EventSettingsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Event settings")).toBeInTheDocument();
+
+    const thumbnail = new File(["cover"], "cover.jpg", { type: "image/jpeg" });
+    await user.upload(screen.getByLabelText("Event thumbnail"), thumbnail);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(patchBody).toBeInstanceOf(FormData);
+    });
+    const formData = patchBody as FormData;
+    expect(formData.get("cover")).toBe(thumbnail);
+    expect(formData.get("name")).toBe("Launch Party");
   });
 });

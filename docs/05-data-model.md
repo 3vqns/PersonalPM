@@ -169,6 +169,7 @@
 | DELETE | `/api/account/face-profile` | User | Remove face profile and clear related match rows |
 | POST | `/api/events` | User | Create event + Rekognition collection |
 | GET | `/api/events/{id}` | Member | Get event details + photo counts |
+| PATCH | `/api/events/{id}` | Admin | Update event metadata and optional thumbnail |
 | GET | `/api/events/join/{token}` | Public | Get limited event preview by join token |
 | POST | `/api/events/join/{token}` | User | Join by QR/link token and repair membership |
 | POST | `/api/events/{id}/join` | User | Join event + enqueue background match job |

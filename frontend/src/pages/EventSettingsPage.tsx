@@ -1,4 +1,4 @@
-import { AlertCircle, Trash2 } from "lucide-react";
+import { AlertCircle, Image as ImageIcon, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
@@ -37,6 +37,19 @@ export function EventSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!thumbnailFile) {
+      setThumbnailPreviewUrl(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(thumbnailFile);
+    setThumbnailPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [thumbnailFile]);
 
   useEffect(() => {
     async function loadSettings() {
@@ -106,18 +119,23 @@ export function EventSettingsPage() {
       );
 
     try {
+      const formData = new FormData();
+      formData.append("name", form.name);
+      formData.append("date", form.date);
+      formData.append("location", form.location.trim() || "TBD");
+      formData.append("description", form.description);
+      formData.append("allow_anyone_upload", String(form.allowAnyoneUpload));
+      formData.append("tags", JSON.stringify(finalTags));
+      if (thumbnailFile) {
+        formData.append("cover", thumbnailFile);
+      }
+
       const response = await apiFetch<EventDetail>(`/api/events/${id}`, {
         method: "PATCH",
-        body: {
-          name: form.name,
-          date: form.date,
-          location: form.location.trim() || "TBD",
-          description: form.description,
-          allow_anyone_upload: form.allowAnyoneUpload,
-          tags: finalTags,
-        },
+        body: formData,
       });
       setEvent(response);
+      setThumbnailFile(null);
       setSuccess("Event details updated.");
     } catch (requestError) {
       setError(
@@ -290,6 +308,46 @@ export function EventSettingsPage() {
               />
             </div>
           </label>
+
+          <div className="space-y-3 lg:col-span-2">
+            <span className="text-sm font-medium text-ink">Event thumbnail</span>
+            <div className="grid gap-4 rounded-[28px] border border-ink/10 p-4 sm:grid-cols-[180px_1fr] sm:items-center">
+              <div className="aspect-[4/3] overflow-hidden rounded-2xl bg-ivory">
+                {thumbnailPreviewUrl || event.coverUrl ? (
+                  <img
+                    src={thumbnailPreviewUrl ?? event.coverUrl}
+                    alt="Event thumbnail preview"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-slate">
+                    <ImageIcon className="h-8 w-8" />
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <p className="text-sm leading-6 text-slate">
+                  Choose the image shown on dashboard event cards and invite previews.
+                </p>
+                <div className="field-shell">
+                  <input
+                    className="field-input"
+                    type="file"
+                    accept="image/*"
+                    aria-label="Event thumbnail"
+                    onChange={(inputEvent) =>
+                      setThumbnailFile(inputEvent.target.files?.[0] ?? null)
+                    }
+                  />
+                </div>
+                {thumbnailFile ? (
+                  <p className="text-xs text-seafoam-700">
+                    New thumbnail selected: {thumbnailFile.name}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
 
           {/* Tags */}
           <div className="space-y-2 lg:col-span-2">

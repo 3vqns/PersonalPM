@@ -249,6 +249,17 @@ export async function getDemoApiResponse<T>(
       } as T;
     }
 
+    if (method === "PATCH" && options.body instanceof FormData) {
+      return {
+        ...demoEvent,
+        name: getFormString(options.body, "name") ?? demoEvent.name,
+        date: getFormString(options.body, "date") ?? demoEvent.date,
+        location: getFormString(options.body, "location") ?? demoEvent.location,
+        description: getFormString(options.body, "description") ?? demoEvent.description,
+        privateGallery: false,
+      } as T;
+    }
+
     return demoEvent as T;
   }
 
@@ -475,4 +486,9 @@ export async function getDemoApiResponse<T>(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getFormString(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value : null;
 }
