@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { JoinEventPage } from "./JoinEventPage";
@@ -138,6 +139,80 @@ describe("JoinEventPage", () => {
     expect(screen.getByRole("button", { name: /join with google/i })).toBeInTheDocument();
     expect(screen.getByText("Or with email")).toBeInTheDocument();
     expect(mockedApiFetch).not.toHaveBeenCalledWith("/api/events/join/demo-token/gallery", expect.anything());
+  });
+
+  it("lets anonymous visitors continue to upload-enabled galleries with a required name", async () => {
+    const user = userEvent.setup();
+    mockedUseAuth.mockReturnValue({
+      loading: false,
+      session: null,
+      user: null,
+      isDemo: false,
+      signOut: vi.fn(),
+      refreshSession: vi.fn(),
+      startDemo: vi.fn(),
+    });
+
+    mockedApiFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/events/join/demo-token/gallery") {
+        return {
+          event: {
+            id: "event-1",
+            name: "Demo Event",
+            date: "2026-06-21",
+          },
+          photos: [
+            {
+              id: "photo-1",
+              cloudinaryUrl: "https://example.com/photo.jpg",
+              thumbnailUrl: "https://example.com/photo-thumb.jpg",
+              uploadedAt: "2026-06-21T00:00:00Z",
+              faceCount: 1,
+            },
+          ],
+        };
+      }
+
+      if (path === "/api/events/join/demo-token") {
+        return {
+          id: "event-1",
+          name: "Demo Event",
+          date: "2026-06-21",
+          hostName: "Avery",
+          photoCount: 1,
+          memberCount: 9,
+          status: "active",
+          joinToken: "demo-token",
+          privateGallery: false,
+          allowAnyoneUpload: true,
+        };
+      }
+
+      throw new Error(`Unexpected path: ${path}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/join/demo-token"]}>
+        <Routes>
+          <Route path="/join/:token" element={<JoinEventPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Demo Event")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Continue without logging in" }));
+
+    expect(await screen.findByText("What's your name?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to gallery" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Your name"), "Guest Uploader");
+    await user.click(screen.getByRole("button", { name: "Continue to gallery" }));
+
+    expect(await screen.findByText("Event gallery")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload photos" })).toBeInTheDocument();
+    expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/join/demo-token/gallery", {
+      auth: false,
+    });
   });
 
   it("registers signed-in users from public invite links before opening the event", async () => {

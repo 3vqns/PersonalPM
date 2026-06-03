@@ -30,7 +30,7 @@ The frontend in [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend) is 
 - Private gallery mode is currently disabled. The frontend does not expose a private-gallery checkbox or private access list.
 - Event gallery access is based on event membership. Owners, admins, and members can view the event gallery.
 - Event gallery share links and QR codes do not use join tokens. Personal Gallery Share uses `/gallery/{token}` and Full Gallery Share uses `/event-gallery/{token}` so signed-in and signed-out visitors can view the shared photos without changing event membership.
-- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration and adds or repairs event membership.
+- Join Event links and QR codes live in event settings only. `/join/{token}` is for signed-in registration and adds or repairs event membership. If an event allows uploads without signing in, anonymous visitors can continue from the invite screen after entering a required display name, then view the public gallery and upload with that name attached.
 - Gallery load failures show safe troubleshooting copy to normal users and a request reference when one exists. Local development builds can show endpoint/code/details behind the troubleshooting panel for debugging.
 
 ## Remaining Backend Integration Cleanup
