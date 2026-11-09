@@ -1,4 +1,5 @@
 boto3==1.39.0
+botocore==1.39.17
 cloudinary==1.44.1
 fastapi==0.115.12
 pydantic-settings==2.8.1
