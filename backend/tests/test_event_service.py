@@ -6,11 +6,13 @@ import asyncio
 from datetime import date, datetime, timezone
 from io import BytesIO
 from types import SimpleNamespace
+import pytest
 
 from fastapi import UploadFile
 from starlette.datastructures import Headers
 
 from backend.dependencies.auth import AuthenticatedUser
+from backend.errors import AppError
 from backend.schemas.account import PublicUserRecord
 from backend.schemas.event import EventMemberRecord, EventRecord, PhotoRecord
 from backend.services import event_service
@@ -24,6 +26,28 @@ class FakeBackgroundTasks:
 
     def add_task(self, func, *args, **kwargs) -> None:
         self.tasks.append((func, args, kwargs))
+
+
+def test_event_id_alone_cannot_create_membership(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="user-1", email="user@example.com", access_token="token", raw_user={"id": "user-1"})
+    event = EventRecord(id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18), join_token="join-token", rekognition_collection_id="collection-1", status="active", created_at=datetime(2026, 4, 18, tzinfo=timezone.utc))
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda eventId: event)
+    monkeypatch.setattr(event_service, "_get_membership", lambda eventId, userId: None)
+    with pytest.raises(AppError) as excInfo:
+        event_service.join_event(currentUser, event_id=event.id, background_tasks=FakeBackgroundTasks())
+    assert excInfo.value.code == "FORBIDDEN"
+
+
+def test_removed_member_cannot_rejoin_with_valid_token(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="user-1", email="user@example.com", access_token="token", raw_user={"id": "user-1"})
+    event = EventRecord(id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18), join_token="join-token", rekognition_collection_id="collection-1", status="active", created_at=datetime(2026, 4, 18, tzinfo=timezone.utc))
+    monkeypatch.setattr(event_service, "_get_event_by_join_token", lambda token: event)
+    monkeypatch.setattr(event_service, "get_public_user_record", lambda user: SimpleNamespace(has_face_profile=False))
+    monkeypatch.setattr(event_service, "_get_membership", lambda eventId, userId: None)
+    monkeypatch.setattr(event_service, "_is_removed_member", lambda eventId, userId: True)
+    with pytest.raises(AppError) as excInfo:
+        event_service.join_event_by_token(currentUser, token="join-token", background_tasks=FakeBackgroundTasks())
+    assert excInfo.value.code == "FORBIDDEN"
 
 
 class _FakeTable:
@@ -79,9 +103,18 @@ class _FakeClient:
         self.updated_event_payloads: list[dict] = []
         self.upserted_memberships: list[tuple[dict, str | None]] = []
         self.upserted_gallery_access: list[tuple[dict, str | None]] = []
+        self.joined_memberships: list[dict] = []
 
     def table(self, _name: str):
         return _FakeTable(_name, self)
+
+    def rpc(self, name: str, payload: dict):
+        if name == "join_event_member_with_token":
+            self.joined_memberships.append(payload)
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=True))
+        assert name == "update_event_as_manager"
+        self.updated_event_payloads.append(payload["patch"])
+        return SimpleNamespace(execute=lambda: SimpleNamespace(data=None))
 
 
 def _build_upload_file(name: str, content: bytes = b"cover-bytes") -> UploadFile:
@@ -110,7 +143,7 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
     )
     background_tasks = FakeBackgroundTasks()
 
-    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_get_event_by_join_token", lambda _token: event)
     monkeypatch.setattr(
         event_service,
         "get_public_user_record",
@@ -123,24 +156,22 @@ def test_join_event_enqueues_matching_for_face_profile(monkeypatch) -> None:
             rekognition_face_id=None,
         ),
     )
-    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
+    memberships = iter([None, EventMemberRecord(
+        id="member-1", event_id=event.id, user_id=current_user.user_id, role="member",
+        joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )])
+    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: next(memberships))
+    monkeypatch.setattr(event_service, "_is_removed_member", lambda eventId, userId: False)
     client = _FakeClient()
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
 
-    response = event_service.join_event(current_user, event_id=event.id, background_tasks=background_tasks)
+    response = event_service.join_event_by_token(current_user, token="join-token", background_tasks=background_tasks)
 
     assert response.event_id == event.id
     assert response.already_joined is False
-    assert client.upserted_memberships == [
-        (
-            {
-                "event_id": event.id,
-                "user_id": current_user.user_id,
-                "role": "member",
-            },
-            "event_id,user_id",
-        )
-    ]
+    assert client.joined_memberships == [{
+        "event_id_input": event.id, "user_id_input": current_user.user_id, "token_input": "join-token",
+    }]
     assert client.upserted_gallery_access == []
     assert background_tasks.tasks
     queued_func, _args, kwargs = background_tasks.tasks[0]
@@ -170,7 +201,7 @@ def test_join_stale_private_event_flag_still_adds_member(monkeypatch) -> None:
     )
     client = _FakeClient()
 
-    monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
+    monkeypatch.setattr(event_service, "_get_event_by_join_token", lambda _token: event)
     monkeypatch.setattr(
         event_service,
         "get_public_user_record",
@@ -183,23 +214,21 @@ def test_join_stale_private_event_flag_still_adds_member(monkeypatch) -> None:
             rekognition_face_id=None,
         ),
     )
-    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
+    memberships = iter([None, EventMemberRecord(
+        id="member-1", event_id=event.id, user_id=current_user.user_id, role="member",
+        joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )])
+    monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: next(memberships))
+    monkeypatch.setattr(event_service, "_is_removed_member", lambda eventId, userId: False)
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
 
-    response = event_service.join_event(current_user, event_id=event.id, background_tasks=FakeBackgroundTasks())
+    response = event_service.join_event_by_token(current_user, token="join-token", background_tasks=FakeBackgroundTasks())
 
     assert response.role == "member"
     assert response.gallery_access_status == "approved"
-    assert client.upserted_memberships == [
-        (
-            {
-                "event_id": "event-1",
-                "user_id": "user-1",
-                "role": "member",
-            },
-            "event_id,user_id",
-        )
-    ]
+    assert client.joined_memberships == [{
+        "event_id_input": "event-1", "user_id_input": "user-1", "token_input": "join-token",
+    }]
     assert client.upserted_gallery_access == []
 
 
@@ -240,19 +269,55 @@ def test_join_public_event_uses_membership_only_for_existing_member(monkeypatch)
             email=current_user.email or "",
             name="User One",
             avatar_url=None,
-            face_indexed_at=None,
+            face_indexed_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
             rekognition_face_id=None,
         ),
     )
     monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: membership)
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
 
-    response = event_service.join_event_by_token(current_user, token="join-token", background_tasks=FakeBackgroundTasks())
+    backgroundTasks = FakeBackgroundTasks()
+    response = event_service.join_event_by_token(current_user, token="join-token", background_tasks=backgroundTasks)
 
     assert response.already_joined is True
     assert response.event_id == event.id
     assert client.upserted_memberships == []
+    assert client.joined_memberships == []
     assert client.upserted_gallery_access == []
+    assert backgroundTasks.tasks == []
+
+
+def test_concurrent_token_join_does_not_queue_duplicate_matching(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="user-1", email=None, access_token="token", raw_user={"id": "user-1"})
+    event = EventRecord(
+        id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18),
+        join_token="join-token", rekognition_collection_id="collection-1", status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    client = SimpleNamespace(rpc=lambda name, payload: SimpleNamespace(execute=lambda: SimpleNamespace(data=False)))
+    membershipReads = 0
+
+    def getMembership(eventId, userId):
+        nonlocal membershipReads
+        membershipReads += 1
+        if membershipReads == 1:
+            return None
+        return EventMemberRecord(
+            id="member-1", event_id="event-1", user_id="user-1", role="member",
+            joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+        )
+
+    monkeypatch.setattr(event_service, "_get_event_by_join_token", lambda token: event)
+    monkeypatch.setattr(event_service, "get_public_user_record", lambda user: SimpleNamespace(has_face_profile=True))
+    monkeypatch.setattr(event_service, "_get_membership", getMembership)
+    monkeypatch.setattr(event_service, "_is_removed_member", lambda eventId, userId: False)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+    backgroundTasks = FakeBackgroundTasks()
+
+    response = event_service.join_event_by_token(currentUser, token="join-token", background_tasks=backgroundTasks)
+
+    assert response.already_joined is True
+    assert backgroundTasks.tasks == []
 
 
 def test_public_gallery_access_status_ignores_access_rows(monkeypatch) -> None:
@@ -287,7 +352,7 @@ def test_public_gallery_access_status_ignores_access_rows(monkeypatch) -> None:
     assert event_service._get_public_gallery_access_status(event, "user-2") == "none"
 
 
-def test_request_access_for_public_event_only_ensures_membership(monkeypatch) -> None:
+def test_request_access_for_public_event_requires_membership(monkeypatch) -> None:
     current_user = AuthenticatedUser(
         user_id="user-1",
         email="user@example.com",
@@ -306,10 +371,8 @@ def test_request_access_for_public_event_only_ensures_membership(monkeypatch) ->
         status="active",
         created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
     )
-    ensured_members: list[tuple[str, str]] = []
-
     monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
-    monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
+    monkeypatch.setattr(event_service, "_require_event_role", lambda userId, selectedEvent: "member")
     monkeypatch.setattr(
         event_service,
         "_upsert_gallery_access",
@@ -319,7 +382,6 @@ def test_request_access_for_public_event_only_ensures_membership(monkeypatch) ->
     response = event_service.request_gallery_access(current_user, event_id=event.id)
 
     assert response.status == "approved"
-    assert ensured_members == [("event-1", "user-1")]
 
 
 def test_remove_event_member_deletes_membership_access_and_matches(monkeypatch) -> None:
@@ -341,27 +403,12 @@ def test_remove_event_member_deletes_membership_access_and_matches(monkeypatch) 
         status="active",
         created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
     )
-    deleted_filters: list[tuple[str, dict[str, str]]] = []
-
-    class _DeleteTable:
-        def __init__(self, name: str) -> None:
-            self.name = name
-            self.filters: dict[str, str] = {}
-
-        def delete(self):
-            return self
-
-        def eq(self, key: str, value: str):
-            self.filters[key] = value
-            return self
-
-        def execute(self):
-            deleted_filters.append((self.name, self.filters))
-            return SimpleNamespace(data=[])
+    rpcCalls: list[tuple[str, dict]] = []
 
     class _DeleteClient:
-        def table(self, name: str):
-            return _DeleteTable(name)
+        def rpc(self, name: str, payload: dict):
+            rpcCalls.append((name, payload))
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=None))
 
     monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
     monkeypatch.setattr(event_service, "_require_event_manager", lambda _user_id, _event: "creator")
@@ -381,11 +428,10 @@ def test_remove_event_member_deletes_membership_access_and_matches(monkeypatch) 
     response = event_service.remove_event_member(current_user, event_id=event.id, member_user_id="user-1")
 
     assert response == {"success": True}
-    assert deleted_filters == [
-        ("event_gallery_access", {"event_id": "event-1", "user_id": "user-1"}),
-        ("user_photo_matches", {"event_id": "event-1", "user_id": "user-1"}),
-        ("event_members", {"event_id": "event-1", "user_id": "user-1"}),
-    ]
+    assert rpcCalls == [("remove_event_member_as_manager", {
+        "event_id_input": "event-1", "actor_id_input": "creator-1",
+        "member_id_input": "user-1", "creator_only": False,
+    })]
 
 
 def test_invite_gallery_access_by_email_adds_event_member(monkeypatch) -> None:
@@ -416,22 +462,22 @@ def test_invite_gallery_access_by_email_adds_event_member(monkeypatch) -> None:
         face_indexed_at=None,
         rekognition_face_id=None,
     )
-    ensured_members: list[tuple[str, str]] = []
+    rpcCalls: list[tuple[str, dict]] = []
+
+    class _GrantClient:
+        def rpc(self, name: str, payload: dict):
+            rpcCalls.append((name, payload))
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data={
+                "id": "access-1",
+                "status": "approved",
+                "requested_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
+                "approved_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
+            }))
 
     monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
     monkeypatch.setattr(event_service, "_get_membership", lambda _event_id, _user_id: None)
     monkeypatch.setattr(event_service, "_get_public_user_by_email", lambda _email: invited_user)
-    monkeypatch.setattr(event_service, "_ensure_event_member", lambda **kwargs: ensured_members.append((kwargs["event_id"], kwargs["user_id"])))
-    monkeypatch.setattr(
-        event_service,
-        "_upsert_gallery_access",
-        lambda **_kwargs: {
-            "id": "access-1",
-            "status": "approved",
-            "requested_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
-            "approved_at": datetime(2026, 4, 18, tzinfo=timezone.utc),
-        },
-    )
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: _GrantClient())
 
     response = event_service.invite_gallery_access_by_email(
         current_user,
@@ -439,8 +485,79 @@ def test_invite_gallery_access_by_email_adds_event_member(monkeypatch) -> None:
         email="alex@example.com",
     )
 
-    assert ensured_members == [("event-1", "user-2")]
+    assert rpcCalls == [("set_gallery_access_as_creator", {
+        "event_id_input": "event-1", "actor_id_input": "creator-1",
+        "member_id_input": "user-2", "status_input": "approved",
+    })]
     assert response.status == "approved"
+
+
+def test_gallery_grant_rechecks_creator_in_database_rpc(monkeypatch) -> None:
+    client = SimpleNamespace(rpc=lambda name, payload: SimpleNamespace(
+        execute=lambda: (_ for _ in ()).throw(RuntimeError("event creator permission has been removed"))
+    ))
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+
+    with pytest.raises(AppError) as excInfo:
+        event_service._upsert_gallery_access(
+            event_id="event-1", user_id="user-2", status="approved", invited_by="creator-1"
+        )
+    assert excInfo.value.code == "FORBIDDEN"
+
+
+def test_member_role_change_rechecks_creator_in_database_rpc(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="creator-1", email=None, access_token="token", raw_user={"id": "creator-1"})
+    event = EventRecord(
+        id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18),
+        join_token="join-token", rekognition_collection_id="collection-1", status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    member = EventMemberRecord(
+        id="member-1", event_id="event-1", user_id="user-2", role="member",
+        joined_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    client = SimpleNamespace(rpc=lambda name, payload: SimpleNamespace(
+        execute=lambda: (_ for _ in ()).throw(RuntimeError("event creator permission has been removed"))
+    ))
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda eventId: event)
+    monkeypatch.setattr(event_service, "_get_membership", lambda eventId, userId: member)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+
+    with pytest.raises(AppError) as excInfo:
+        event_service.update_event_member_role(
+            currentUser, event_id="event-1", member_user_id="user-2", role="admin"
+        )
+    assert excInfo.value.code == "FORBIDDEN"
+
+
+def test_gallery_access_removal_requires_creator_at_final_write(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="creator-1", email=None, access_token="token", raw_user={"id": "creator-1"})
+    event = EventRecord(
+        id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18),
+        join_token="join-token", rekognition_collection_id="collection-1", status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    removeCalls: list[dict] = []
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda eventId: event)
+    monkeypatch.setattr(event_service, "remove_event_member", lambda user, **kwargs: removeCalls.append(kwargs) or {"success": True})
+
+    response = event_service.remove_gallery_access(currentUser, event_id="event-1", user_id="user-2")
+
+    assert response == {"success": True}
+    assert removeCalls == [{"event_id": "event-1", "member_user_id": "user-2", "creatorOnly": True}]
+
+
+def test_event_creation_budget_rejects_before_aws(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="user-1", email="user@example.com", access_token="token", raw_user={"id": "user-1"})
+    monkeypatch.setattr(event_service, "get_public_user_record", lambda user: SimpleNamespace(id="user-1"))
+    monkeypatch.setattr(event_service, "getSettings", lambda: SimpleNamespace(rekognition_collection_prefix="pictureme-event"))
+    monkeypatch.setattr(event_service, "_reserve_rekognition_collection", lambda collectionId, creatorId: (_ for _ in ()).throw(
+        AppError("Event collection budget is full", code="EVENT_LIMIT_REACHED", status=429)
+    ))
+    monkeypatch.setattr(event_service, "get_rekognition_client", lambda: (_ for _ in ()).throw(AssertionError("AWS must not be allocated")))
+    with pytest.raises(AppError) as excInfo:
+        asyncio.run(event_service.create_event(currentUser, name="Expo", date_value=date(2026, 4, 18), description=None))
+    assert excInfo.value.code == "EVENT_LIMIT_REACHED"
 
 
 def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
@@ -451,6 +568,7 @@ def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:
         raw_user={"id": "user-1", "email": "user@example.com"},
     )
     client = _FakeClient()
+    monkeypatch.setattr(event_service, "_reserve_rekognition_collection", lambda collectionId, creatorId: None)
 
     monkeypatch.setattr(
         event_service,
@@ -517,6 +635,7 @@ def test_create_event_ignores_empty_cover_upload(monkeypatch) -> None:
         raw_user={"id": "user-1", "email": "user@example.com"},
     )
     client = _FakeClient()
+    monkeypatch.setattr(event_service, "_reserve_rekognition_collection", lambda collectionId, creatorId: None)
     upload_called = False
 
     monkeypatch.setattr(
@@ -590,6 +709,8 @@ def test_update_event_uploads_replacement_cover(monkeypatch) -> None:
 
     monkeypatch.setattr(event_service, "_get_event_or_404", lambda _event_id: event)
     monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+    monkeypatch.setattr(event_service, "_event_cover_public_id", lambda url, eventId: "pictureme/event-covers/event-1/old-cover")
+    monkeypatch.setattr(event_service, "_queue_event_cover", lambda url, eventId: None)
     monkeypatch.setattr(
         event_service,
         "upload_event_cover",
@@ -607,6 +728,85 @@ def test_update_event_uploads_replacement_cover(monkeypatch) -> None:
     )
 
     assert client.updated_event_payloads == [{"cover_url": "https://cdn.example.com/new-cover.jpg"}]
+
+
+def test_unknown_legacy_cover_blocks_replacement_before_upload(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="creator-1", email=None, access_token="token", raw_user={"id": "creator-1"})
+    event = EventRecord(
+        id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18),
+        join_token="join-token", rekognition_collection_id="collection-1",
+        cover_url="https://unknown.example/cover.jpg", status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda eventId: event)
+    monkeypatch.setattr(event_service, "cloudinary_public_id_from_url", lambda url, prefix: None)
+    monkeypatch.setattr(event_service, "upload_event_cover", lambda **kwargs: (_ for _ in ()).throw(
+        AssertionError("provider upload must not start")
+    ))
+    with pytest.raises(AppError) as excInfo:
+        asyncio.run(event_service.update_event(
+            currentUser, event_id="event-1", payload=event_service.EventUpdateRequest(), cover=_build_upload_file("cover.jpg"),
+        ))
+    assert excInfo.value.code == "MEDIA_ASSET_ID_UNKNOWN"
+
+
+def test_update_event_rechecks_revoked_admin_after_cover_upload(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="admin-1", email=None, access_token="token", raw_user={"id": "admin-1"})
+    event = EventRecord(
+        id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18),
+        join_token="join-token", rekognition_collection_id="collection-1", status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    checks = 0
+    cleaned: list[str] = []
+
+    def requireManager(userId, currentEvent):
+        nonlocal checks
+        checks += 1
+        if checks > 1:
+            raise AppError("Permission removed", code="FORBIDDEN", status=403)
+        return "admin"
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda eventId: event)
+    monkeypatch.setattr(event_service, "_require_event_manager", requireManager)
+    monkeypatch.setattr(event_service, "upload_event_cover", lambda **kwargs: asyncio.sleep(0, result="https://cdn.example.com/new-cover.jpg"))
+    monkeypatch.setattr(event_service, "_queue_event_cover", lambda url, eventId: cleaned.append(url))
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: (_ for _ in ()).throw(AssertionError("write must not run")))
+    with pytest.raises(AppError) as excInfo:
+        asyncio.run(event_service.update_event(
+            currentUser, event_id="event-1", payload=event_service.EventUpdateRequest(),
+            cover=_build_upload_file("cover.jpg"),
+        ))
+    assert excInfo.value.code == "FORBIDDEN"
+    assert cleaned == ["https://cdn.example.com/new-cover.jpg"]
+
+
+def test_event_delete_keeps_rows_when_provider_cleanup_is_unconfirmed(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="creator-1", email=None, access_token="token", raw_user={"id": "creator-1"})
+    event = EventRecord(
+        id="event-1", creator_id="creator-1", name="Expo", date=date(2026, 4, 18),
+        join_token="join-token", rekognition_collection_id="collection-1", status="active",
+        created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
+    )
+    queued: list[str] = []
+
+    class DeleteClient:
+        def rpc(self, name, payload):
+            assert name == "request_event_deletion"
+            return SimpleNamespace(execute=lambda: None)
+
+        def table(self, name):
+            raise AssertionError("metadata deletion must wait for provider confirmation")
+
+    monkeypatch.setattr(event_service, "_get_event_or_404", lambda eventId: event)
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: DeleteClient())
+    monkeypatch.setattr(event_service, "iter_event_photo_asset_pages", lambda eventId: iter([[{"cloudinary_id": "pictureme/events/event-1/asset-1"}]]))
+    monkeypatch.setattr(event_service, "queue_media_cleanup", lambda provider, assetKeys: queued.extend(assetKeys))
+    monkeypatch.setattr(event_service, "drain_media_cleanup", lambda **kwargs: False)
+    with pytest.raises(AppError) as excInfo:
+        event_service.delete_event(currentUser, event_id="event-1")
+    assert excInfo.value.code == "EVENT_MEDIA_CLEANUP_PENDING"
+    assert queued == ["pictureme/events/event-1/asset-1"]
 
 
 def test_get_membership_returns_none_when_no_membership_row(monkeypatch) -> None:
@@ -759,6 +959,7 @@ def test_get_public_event_gallery_returns_join_preview_and_photos(monkeypatch) -
         rekognition_collection_id="collection-1",
         cover_url=None,
         status="active",
+        allow_anyone_upload=True,
         created_at=datetime(2026, 4, 18, tzinfo=timezone.utc),
     )
 

@@ -13,10 +13,6 @@ vi.mock("../lib/api", () => ({
   apiFetch: vi.fn(),
 }));
 
-vi.mock("../lib/cloudinaryUpload", () => ({
-  uploadToCloudinary: vi.fn(),
-}));
-
 const mockedApiFetch = vi.mocked(apiFetch);
 
 function makeImageFile(index: number) {
@@ -85,5 +81,18 @@ describe("UploadModal", () => {
     const [, options] = mockedApiFetch.mock.calls[0];
     const formData = options.body as FormData;
     expect(formData.get("uploader_name")).toBe("Jordan Lee");
+  });
+
+  it("sends image files through the bounded multipart endpoint", async () => {
+    const user = userEvent.setup();
+    mockedApiFetch.mockResolvedValue({ jobId: "job-1" });
+    const { container } = render(<UploadModal eventId="event-1" onClose={vi.fn()} />);
+    const fileInput = container.querySelector("input[type='file']") as HTMLInputElement;
+    await user.upload(fileInput, makeImageFile(1));
+    await user.click(screen.getByRole("button", { name: /start upload/i }));
+    await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledTimes(1));
+    const [path, options] = mockedApiFetch.mock.calls[0];
+    expect(path).toBe("/api/events/event-1/photos");
+    expect((options.body as FormData).getAll("photos")).toHaveLength(1);
   });
 });

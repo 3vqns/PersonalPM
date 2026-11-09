@@ -104,11 +104,12 @@ Used for:
 
 ## Current Repository Structure
 
-- [frontend](/Users/tervin23/Documents/AG/PictureMe/frontend): Frontend application for account creation, event QR flow, and gallery access.
-- [backend](/Users/tervin23/Documents/AG/PictureMe/backend): Backend services for ingestion, matching, storage coordination, and messaging.
-- [docs](/Users/tervin23/Documents/AG/PictureMe/docs): Project scope and architecture notes.
+- [frontend](/Users/tervin23/Documents/AG/PersonalPM/frontend): Frontend application for account creation, event QR flow, and gallery access.
+- [backend](/Users/tervin23/Documents/AG/PersonalPM/backend): Backend services for ingestion, matching, storage coordination, and messaging.
+- [docs](/Users/tervin23/Documents/AG/PersonalPM/docs): Project scope, architecture notes, and security hardening checkpoints.
 
 ## Documentation
 
-- [Project Scope](/Users/tervin23/Documents/AG/PictureMe/docs/scope.md)
-- [Project Structure](/Users/tervin23/Documents/AG/PictureMe/docs/project-structure.md)
+- [Project Scope](/Users/tervin23/Documents/AG/PersonalPM/docs/scope.md)
+- [Project Structure](/Users/tervin23/Documents/AG/PersonalPM/docs/project-structure.md)
+- [Security Hardening Checkpoints](/Users/tervin23/Documents/AG/PersonalPM/docs/security-hardening-checkpoints.md)

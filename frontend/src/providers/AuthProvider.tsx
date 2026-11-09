@@ -109,6 +109,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
   const [demo, setDemo] = useState(initialAuthState.demo);
   const sessionRef = useRef<Session | null>(initialAuthState.session);
+  const authRevisionRef = useRef(0);
 
   const setAuthState = useCallback(
     (nextSession: Session | null, nextUser: AuthUser | null, nextDemo: boolean) => {
@@ -121,6 +122,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
 
   const refreshSession = useCallback(async () => {
+    const authRevision = ++authRevisionRef.current;
     const hadVisibleSession = Boolean(sessionRef.current);
     setLoading(!hadVisibleSession);
     try {
@@ -132,9 +134,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
       const activeSession = await getCurrentSession();
       const activeUser = await loadAuthUser(activeSession?.user ?? null);
+      if (authRevision !== authRevisionRef.current) return;
       setAuthState(activeSession, activeUser, false);
       setAuthError(null);
     } catch (authError) {
+      if (authRevision !== authRevisionRef.current) return;
       console.error("PictureMe auth bootstrap failed", authError);
       if (!sessionRef.current) {
         setAuthState(null, null, false);
@@ -145,11 +149,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
           : "PictureMe could not check your session.",
       );
     } finally {
-      setLoading(false);
+      if (authRevision === authRevisionRef.current) setLoading(false);
     }
   }, [setAuthState]);
 
   const signOut = useCallback(async () => {
+    authRevisionRef.current += 1;
     disableDemoMode();
     await supabase.auth.signOut();
     setAuthState(null, null, false);
@@ -157,6 +162,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [setAuthState]);
 
   const startDemo = useCallback(async () => {
+    authRevisionRef.current += 1;
     enableDemoMode();
     setAuthState(getDemoSession(), getDemoUser(), true);
     setAuthError(null);
@@ -167,6 +173,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void refreshSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, activeSession) => {
+      const authRevision = ++authRevisionRef.current;
       if (isDemoMode()) {
         setAuthState(getDemoSession(), getDemoUser(), true);
         setAuthError(null);
@@ -184,7 +191,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return;
       }
 
+      if (activeSession?.user.id && activeSession.user.id !== sessionRef.current?.user.id) {
+        setLoading(true);
+        setAuthState(activeSession, mapUser(activeSession.user), false);
+      }
+
       const activeUser = await loadAuthUser(activeSession?.user ?? null);
+      if (authRevision !== authRevisionRef.current) return;
       setAuthState(activeSession, activeUser, false);
       setAuthError(null);
       setLoading(false);

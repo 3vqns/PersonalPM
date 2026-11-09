@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import getSettings
 from backend.errors import register_error_handlers
+from backend.request_limits import RequestBodyLimitMiddleware
 from backend.app_logging import configure_logging, log_requests
 from backend.routes.account import router as account_router
 from backend.routes.events import router as event_router
@@ -34,6 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.middleware("http")(log_requests)
+app.add_middleware(RequestBodyLimitMiddleware, settings=settings)
 
 # --- Error handlers -------------------------------------------------------
 
@@ -60,6 +62,7 @@ def _run() -> None:
         host="0.0.0.0",
         port=settings.port,
         reload=settings.is_development,
+        access_log=False,
     )
 
 

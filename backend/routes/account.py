@@ -4,9 +4,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 
 from backend.dependencies.auth import AuthenticatedUser, require_authenticated_user
 from backend.schemas.account import AccountResponse, FaceProfileStatusResponse
-from backend.services.account_service import delete_face_profile, get_account, replace_face_profile, update_account_profile
+from backend.services.account_service import delete_account, delete_face_profile, get_account, replace_face_profile, update_account_profile
 
 router = APIRouter(prefix="/api/account", tags=["account"])
+
+
+@router.delete("", status_code=204)
+def remove_account(current_user: AuthenticatedUser = Depends(require_authenticated_user)) -> None:
+    """Delete the signed-in account after owned event disposition is resolved."""
+    delete_account(current_user)
 
 
 @router.get("", response_model=AccountResponse)

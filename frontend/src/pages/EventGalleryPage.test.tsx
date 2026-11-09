@@ -558,7 +558,7 @@ describe("EventGalleryPage", () => {
     expect(screen.getByText(/Some gallery photos could not load/i)).toBeInTheDocument();
   });
 
-  it("repairs a stale missing membership before showing gallery unavailable", async () => {
+  it("does not turn an event ID into membership when access is denied", async () => {
     mockedUseAuth.mockReturnValue({
       loading: false,
       session: { access_token: "token" } as never,
@@ -569,34 +569,9 @@ describe("EventGalleryPage", () => {
       startDemo: vi.fn(),
     });
 
-    let eventLoadCount = 0;
     mockedApiFetch.mockImplementation(async (path: string) => {
       if (path === "/api/events/event-1") {
-        eventLoadCount += 1;
-        if (eventLoadCount === 1) {
-          throw new Error("You do not have access to this event");
-        }
-
-        return {
-          id: "event-1",
-          name: "Launch Party",
-          date: "2026-05-10",
-          location: "TBD",
-          status: "active",
-          joinToken: "join-token",
-          role: "member",
-          creator: { id: "creator-1", name: "Taylor" },
-          counts: { allPhotos: 0, myPhotos: 0, members: 5 },
-        };
-      }
-
-      if (path === "/api/events/event-1/join") {
-        return {
-          eventId: "event-1",
-          alreadyJoined: false,
-          role: "member",
-          galleryAccessStatus: "approved",
-        };
+        throw new Error("You do not have access to this event");
       }
 
       if (path === "/api/events/event-1/photos") {
@@ -621,11 +596,8 @@ describe("EventGalleryPage", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("Launch Party")).toBeInTheDocument();
-    expect(screen.queryByText("Gallery unavailable")).not.toBeInTheDocument();
-    expect(mockedApiFetch).toHaveBeenCalledWith("/api/events/event-1/join", {
-      method: "POST",
-    });
+    expect(await screen.findByText("Gallery unavailable")).toBeInTheDocument();
+    expect(mockedApiFetch).not.toHaveBeenCalledWith("/api/events/event-1/join", expect.anything());
   });
 
   it("shows endpoint and backend code when the event load fails", async () => {
