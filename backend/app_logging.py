@@ -2,6 +2,7 @@
 
 import contextvars
 import logging
+import re
 from json import dumps
 from logging.config import dictConfig
 from time import perf_counter
@@ -64,7 +65,8 @@ def configure_logging(settings: Settings) -> None:
                     "level": log_level,
                 },
                 "uvicorn.access": {
-                    "level": log_level,
+                    "level": "WARNING",
+                    "propagate": False,
                 },
                 "pictureme": {
                     "level": log_level,
@@ -80,7 +82,7 @@ async def log_requests(request: Request, call_next):
     """Log one structured line per request with status and duration."""
     logger = logging.getLogger("pictureme.http")
     started_at = perf_counter()
-    request_id = request.headers.get("x-request-id") or uuid4().hex
+    request_id = _validated_request_id(request.headers.get("x-request-id"))
     request.state.request_id = request_id
     token = request_id_context.set(request_id)
 
@@ -93,7 +95,7 @@ async def log_requests(request: Request, call_next):
             dumps(
                 {
                     "method": request.method,
-                    "path": request.url.path,
+                    "path": redacted_request_path(request),
                     "status": response.status_code,
                     "durationMs": round(duration_ms, 2),
                     "client": request.client.host if request.client else None,
@@ -103,12 +105,13 @@ async def log_requests(request: Request, call_next):
         return response
     except Exception:
         duration_ms = (perf_counter() - started_at) * 1000
-        logger.exception(
+        logFailure = logger.error if is_capability_request(request) else logger.exception
+        logFailure(
             "Request failed %s",
             dumps(
                 {
                     "method": request.method,
-                    "path": request.url.path,
+                    "path": redacted_request_path(request),
                     "status": 500,
                     "durationMs": round(duration_ms, 2),
                     "client": request.client.host if request.client else None,
@@ -118,3 +121,33 @@ async def log_requests(request: Request, call_next):
         raise
     finally:
         request_id_context.reset(token)
+
+
+def _validated_request_id(requestedId: str | None) -> str:
+    if requestedId and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", requestedId):
+        return requestedId
+    return uuid4().hex
+
+
+def redacted_request_path(request: Request) -> str:
+    route = request.scope.get("route")
+    routePath = getattr(route, "path", None)
+    if isinstance(routePath, str):
+        return routePath
+    path = request.url.path
+    for pattern, replacement in (
+        (r"^/api/events/join/[^/]+(/gallery)?$", r"/api/events/join/{token}\1"),
+        (r"^/api/(gallery|event-gallery)/[^/]+$", r"/api/\1/{token}"),
+    ):
+        redactedPath = re.sub(pattern, replacement, path)
+        if redactedPath != path:
+            return redactedPath
+    return "/unmatched"
+
+
+def is_capability_request(request: Request) -> bool:
+    """Keep exception text and tracebacks off token-bearing routes."""
+    path = request.url.path
+    return path.startswith("/api/events/join/") or path.startswith("/api/gallery/") or path.startswith(
+        "/api/event-gallery/"
+    )

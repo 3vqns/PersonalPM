@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from botocore.exceptions import ClientError
 
@@ -14,13 +14,16 @@ from backend.core.supabase_admin import get_supabase_admin_client
 from backend.errors import AppError
 from backend.schemas.event import EventRecord
 from backend.schemas.internal import CleanupEventResult, CleanupResponse
-from backend.services.cloudinary_service import delete_event_photo_assets
+from backend.services.cloudinary_service import cloudinary_public_id_from_url, delete_event_photo_assets
+from backend.services.media_cleanup_service import drain_media_cleanup, event_photo_public_id, iter_event_photo_asset_pages, queue_media_cleanup
 
 logger = logging.getLogger("pictureme.cleanup")
 
 
 def run_cleanup() -> CleanupResponse:
     """Find expired active events and clean external/media state safely."""
+    drain_media_cleanup(maxItems=100)
+    _cleanup_orphaned_collections()
     events = _list_expired_active_events()
     results: list[CleanupEventResult] = []
 
@@ -37,12 +40,11 @@ def run_cleanup() -> CleanupResponse:
 
 
 def _cleanup_one_event(event: EventRecord) -> CleanupEventResult:
-    photo_rows = _list_event_photo_assets(event.id)
-    public_ids = [row["cloudinary_id"] for row in photo_rows if row.get("cloudinary_id")]
+    _mark_cleanup_started(event.id)
     result = CleanupEventResult(
         eventId=event.id,
         status="skipped",
-        photosConsidered=len(photo_rows),
+        photosConsidered=0,
         cloudinaryDeleted=0,
         cloudinaryFailed=0,
         userMatchesCleared=0,
@@ -55,20 +57,44 @@ def _cleanup_one_event(event: EventRecord) -> CleanupEventResult:
         return result
 
     cloudinary_success = True
-    if public_ids:
+    try:
+        for photoRows in iter_event_photo_asset_pages(event.id):
+            result.photos_considered += len(photoRows)
+            publicIds = [publicId for row in photoRows if (publicId := event_photo_public_id(row, event.id))]
+            if not publicIds:
+                continue
+            try:
+                deletedMap = delete_event_photo_assets(public_ids=publicIds)
+                deletedCount = sum(1 for publicId in publicIds if deletedMap.get(publicId) in {"deleted", "not_found"})
+                result.cloudinary_deleted += deletedCount
+                result.cloudinary_failed += len(publicIds) - deletedCount
+            except AppError as exc:
+                result.cloudinary_failed += len(publicIds)
+                result.errors.append(exc.message)
+    except AppError as exc:
+        result.errors.append(exc.message)
+        cloudinary_success = False
+    if result.cloudinary_failed:
+        result.errors.append("Some Cloudinary assets could not be deleted")
+        cloudinary_success = False
+
+    coverId = cloudinary_public_id_from_url(event.cover_url, f"{getSettings().event_cover_folder}/{event.id}")
+    if event.cover_url and not coverId:
+        result.errors.append("Event cover asset ID requires provider review")
+        cloudinary_success = False
+    if coverId:
         try:
-            deleted_map = delete_event_photo_assets(public_ids=public_ids)
-            result.cloudinary_deleted = sum(1 for public_id in public_ids if deleted_map.get(public_id) in {"deleted", "not_found"})
-            result.cloudinary_failed = len(public_ids) - result.cloudinary_deleted
-            cloudinary_success = result.cloudinary_failed == 0
-            if not cloudinary_success:
-                result.errors.append("Some Cloudinary assets could not be deleted")
-        except AppError as exc:
-            result.cloudinary_failed = len(public_ids)
-            result.errors.append(exc.message)
+            queue_media_cleanup(provider="cloudinary", assetKeys=[coverId])
+            coverDeleted = drain_media_cleanup(assetKeys=[coverId], provider="cloudinary")
+        except AppError:
+            coverDeleted = False
+        if not coverDeleted:
+            result.errors.append("Event cover could not be deleted")
             cloudinary_success = False
 
     rekognition_success = _delete_rekognition_collection_safe(event.rekognition_collection_id, result.errors)
+    if rekognition_success:
+        _release_collection_reservation(event.rekognition_collection_id)
 
     if not cloudinary_success or not rekognition_success:
         result.status = "failed"
@@ -123,13 +149,13 @@ def _list_expired_active_events() -> list[EventRecord]:
     return [EventRecord.model_validate(row) for row in (response.data or [])]
 
 
-def _list_event_photo_assets(event_id: str) -> list[dict]:
+def _mark_cleanup_started(eventId: str) -> None:
     try:
-        response = get_supabase_admin_client().table("photos").select("id,cloudinary_id").eq("event_id", event_id).execute()
+        get_supabase_admin_client().table("events").update({
+            "delete_requested_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", eventId).execute()
     except Exception as exc:
-        raise AppError("PictureMe could not load event photos for cleanup", code="CLEANUP_FETCH_FAILED", status=500) from exc
-
-    return response.data or []
+        raise AppError("PictureMe could not close this event for uploads", code="CLEANUP_DB_FAILED", status=500) from exc
 
 
 def _delete_rekognition_collection_safe(collection_id: str, errors: list[str]) -> bool:
@@ -152,6 +178,36 @@ def _delete_rekognition_collection_safe(collection_id: str, errors: list[str]) -
     except Exception:
         errors.append("Rekognition collection deletion failed")
         return False
+
+
+def _release_collection_reservation(collectionId: str) -> None:
+    try:
+        get_supabase_admin_client().table("event_collection_reservations").delete().eq("collection_id", collectionId).execute()
+    except Exception:
+        logger.warning("Collection reservation still needs cleanup")
+
+
+def _cleanup_orphaned_collections() -> None:
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+    try:
+        reservations = get_supabase_admin_client().table("event_collection_reservations").select("collection_id").lt(
+            "created_at", cutoff
+        ).limit(100).execute().data or []
+    except Exception as exc:
+        raise AppError("PictureMe could not load collection cleanup work", code="CLEANUP_FETCH_FAILED", status=500) from exc
+    for row in reservations:
+        collectionId = row["collection_id"]
+        try:
+            event = get_supabase_admin_client().table("events").select("id").eq(
+                "rekognition_collection_id", collectionId
+            ).limit(1).execute()
+        except Exception:
+            continue
+        if event.data:
+            continue
+        errors: list[str] = []
+        if _delete_rekognition_collection_safe(collectionId, errors):
+            _release_collection_reservation(collectionId)
 
 
 def _delete_rows(table: str, event_id: str) -> int:

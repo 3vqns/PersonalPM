@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { buildRedirectParam } from "../lib/redirect";
 import { useAuth } from "../hooks/useAuth";
@@ -51,5 +51,5 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  return children ? <>{children}</> : <Outlet />;
+  return children ? <Fragment key={session.user.id}>{children}</Fragment> : <Outlet key={session.user.id} />;
 }

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-import urllib.request
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
-from zipfile import BadZipFile, ZipFile
+from zipfile import BadZipFile, ZipFile, ZipInfo
 
 from fastapi import BackgroundTasks, UploadFile
 
@@ -18,10 +17,11 @@ from backend.dependencies.auth import AuthenticatedUser
 from backend.errors import AppError
 from backend.schemas.event import EventRecord, EventRole
 from backend.schemas.upload import CloudinaryUploadToken, DirectUploadPhoto, StagedUploadFile, UploadJobStartResponse
-from backend.services.cloudinary_service import delete_event_photo_assets, generate_event_photo_upload_params, upload_event_photo
-from backend.services.matching_service import trigger_event_member_rematch
+from backend.services.cloudinary_service import upload_event_photo
+from backend.services.media_cleanup_service import drain_media_cleanup, event_photo_public_id, queue_media_cleanup
+from backend.services.matching_service import ensure_event_rematch_capacity, trigger_event_member_rematch
 from backend.services.rekognition_index_service import index_event_photo
-from backend.services.upload_job_service import create_direct_upload_job, create_upload_job
+from backend.services.upload_job_service import create_upload_job
 from backend.services.account_service import get_public_user_record
 
 logger = logging.getLogger("pictureme.uploads")
@@ -56,6 +56,8 @@ async def start_event_upload_batch(
             details={"maxFiles": getSettings().max_event_upload_batch_files, "received": len(files)},
         )
 
+    ensure_event_rematch_capacity(event.id)
+
     staged_files = await _stage_upload_files(event.id, files)
     if not staged_files:
         raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
@@ -79,9 +81,8 @@ def get_event_upload_token(
     *,
     event_id: str,
 ) -> CloudinaryUploadToken:
-    """Verify upload access and return signed Cloudinary params for direct browser upload."""
-    event, _ = _require_upload_access(current_user.user_id if current_user else None, event_id)
-    return generate_event_photo_upload_params(event_id=event.id)
+    """Reject the retired direct browser upload contract."""
+    raise AppError("Direct browser uploads are unavailable; use the photo upload endpoint", code="DIRECT_UPLOAD_DISABLED", status=410)
 
 
 def index_direct_uploads(
@@ -92,124 +93,37 @@ def index_direct_uploads(
     background_tasks: BackgroundTasks,
     uploader_name: str | None = None,
 ) -> UploadJobStartResponse:
-    """Validate and schedule background indexing for photos uploaded directly to Cloudinary."""
-    event, role = _require_upload_access(current_user.user_id if current_user else None, event_id)
-    created_by = current_user.user_id if current_user else None
-    cleaned_uploader_name = _clean_uploader_name(uploader_name, require_name=current_user is None)
-    uploader_display_name = cleaned_uploader_name or _get_current_user_display_name(current_user)
-    if not photos:
-        raise AppError("Select at least one photo to upload", code="VALIDATION_ERROR", status=422)
-    if len(photos) > getSettings().max_event_upload_batch_files:
-        raise AppError(
-            "Too many photos were submitted in one batch",
-            code="UPLOAD_BATCH_TOO_LARGE",
-            status=422,
-            details={"maxFiles": getSettings().max_event_upload_batch_files, "received": len(photos)},
-        )
-
-    expected_prefix = f"{getSettings().event_photo_folder}/{event_id}/"
-    for photo in photos:
-        if not photo.public_id.startswith(expected_prefix):
-            raise AppError("One or more photo references are invalid", code="FORBIDDEN", status=403)
-
-    job = create_direct_upload_job(
-        event_id=event.id,
-        created_by=created_by,
-        total_files=len(photos),
-        uploader_name=cleaned_uploader_name,
-    )
-    background_tasks.add_task(_process_direct_upload_job, job.id, created_by, uploader_display_name, event, photos)
-    logger.info(
-        "Accepted direct upload batch",
-        extra={"job_id": job.id, "event_id": event.id, "role": role, "file_count": len(photos)},
-    )
-    return UploadJobStartResponse(jobId=job.id)
-
-
-def _process_direct_upload_job(
-    job_id: str,
-    uploader_user_id: str | None,
-    uploader_name: str | None,
-    event: EventRecord,
-    photos: list[DirectUploadPhoto],
-) -> None:
-    indexed_files = 0
-    failed_files = 0
-
-    cloud_name = getSettings().cloudinary_cloud_name_value
-
-    for photo in photos:
-        try:
-            logger.info(
-                "Indexing direct upload",
-                extra={"job_id": job_id, "event_id": event.id, "public_id": photo.public_id},
-            )
-            canonical_url = f"https://res.cloudinary.com/{cloud_name}/image/upload/{photo.public_id}"
-            thumbnail_url = (
-                f"https://res.cloudinary.com/{cloud_name}/image/upload"
-                f"/c_limit,f_auto,h_640,q_auto,w_640/{photo.public_id}"
-            )
-            content = _fetch_cloudinary_image(canonical_url)
-            upload_result = {
-                "public_id": photo.public_id,
-                "cloudinary_url": canonical_url,
-                "thumbnail_url": thumbnail_url,
-                "original_filename": photo.original_filename,
-            }
-            photo_id = _insert_photo_row(event.id, uploader_user_id, uploader_name, upload_result)
-            face_records = index_event_photo(
-                collection_id=event.rekognition_collection_id,
-                photo_id=photo_id,
-                content=content,
-            )
-            _insert_face_index_rows(event.id, photo_id, face_records)
-            indexed_files += 1
-        except AppError as exc:
-            logger.warning(
-                "Direct upload index failed",
-                extra={"job_id": job_id, "event_id": event.id, "public_id": photo.public_id, "code": exc.code},
-            )
-            failed_files += 1
-        except Exception:
-            logger.exception("Unexpected failure indexing direct upload %s photo %s", job_id, photo.public_id)
-            failed_files += 1
-
-    logger.info(
-        "Direct upload batch finished",
-        extra={"job_id": job_id, "event_id": event.id, "indexed_files": indexed_files, "failed_files": failed_files},
-    )
-    if indexed_files > 0:
-        trigger_event_member_rematch(event_id=event.id, reason="photo-upload-batch")
-
-
-def _fetch_cloudinary_image(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
-        return response.read()
+    """Retire unbounded direct uploads at the API boundary."""
+    raise AppError("Direct browser uploads are unavailable; use the photo upload endpoint", code="DIRECT_UPLOAD_DISABLED", status=410)
 
 
 async def _stage_upload_files(event_id: str, files: list[UploadFile]) -> list[StagedUploadFile]:
     settings = getSettings()
     staged_files: list[StagedUploadFile] = []
     seen_filenames = _existing_filename_keys(event_id)
+    batchBytes = 0
+    inputBytes = 0
 
     for upload in files:
         upload_filename = _clean_filename(upload.filename)
-        content = await upload.read()
+        isZip = _is_zip_upload(upload_filename, upload.content_type)
+        fileLimit = settings.max_event_upload_archive_size_bytes if isZip else settings.max_event_photo_size_bytes
+        remainingInput = settings.maxEventUploadInputBytes - inputBytes
+        if remainingInput <= 0:
+            raise AppError("Upload batch exceeds the input byte limit", code="UPLOAD_TOO_LARGE", status=422)
+        effectiveLimit = min(fileLimit, remainingInput)
+        content = await upload.read(effectiveLimit + 1)
+        if len(content) > effectiveLimit:
+            raise AppError("Upload exceeds the allowed file size", code="UPLOAD_TOO_LARGE", status=422)
+        inputBytes += len(content)
 
-        if _is_zip_upload(upload_filename, upload.content_type):
-            if len(content) > settings.max_event_upload_archive_size_bytes:
-                raise AppError(
-                    "One or more zip uploads exceed the archive size limit",
-                    code="UPLOAD_TOO_LARGE",
-                    status=422,
-                    details={
-                        "fileName": upload.filename,
-                        "maxBytes": settings.max_event_upload_archive_size_bytes,
-                        "receivedBytes": len(content),
-                    },
-                )
-            staged_files.extend(_stage_zip_upload(upload_filename, content, seen_filenames))
+        if isZip:
+            remainingFiles = settings.max_event_upload_batch_files - len(staged_files)
+            remainingBytes = settings.maxEventUploadBatchBytes - batchBytes
+            staged_files.extend(_stage_zip_upload(upload_filename, content, seen_filenames, remainingFiles, remainingBytes))
         else:
+            if batchBytes + len(content) > settings.maxEventUploadBatchBytes:
+                raise AppError("Upload batch exceeds the byte limit", code="UPLOAD_TOO_LARGE", status=422)
             staged_files.append(
                 _stage_image_file(
                     upload_filename,
@@ -218,6 +132,7 @@ async def _stage_upload_files(event_id: str, files: list[UploadFile]) -> list[St
                     seen_filenames,
                 )
             )
+        batchBytes = sum(stagedFile.byte_size for stagedFile in staged_files)
 
         if len(staged_files) > settings.max_event_upload_batch_files:
             raise AppError(
@@ -283,11 +198,17 @@ def _process_one_file(
         extra={"job_id": job_id, "event_id": event.id, "file_name": staged_file.file_name},
     )
 
+    uploadedPublicId: str | None = None
+    photoId: str | None = None
     try:
+        currentEvent, _ = _require_upload_access(uploader_user_id, event.id)
         upload_result = upload_event_photo(event_id=event.id, file_name=staged_file.file_name, content=staged_file.content)
+        uploadedPublicId = upload_result.get("public_id")
         upload_result["original_filename"] = staged_file.file_name
+        _require_upload_access(uploader_user_id, event.id)
         photo_id = _insert_photo_row(event.id, uploader_user_id, uploader_name, upload_result)
-        face_records = index_event_photo(collection_id=event.rekognition_collection_id, photo_id=photo_id, content=staged_file.content)
+        photoId = photo_id
+        face_records = index_event_photo(collection_id=currentEvent.rekognition_collection_id, photo_id=photo_id, content=staged_file.content)
         _insert_face_index_rows(event.id, photo_id, face_records)
         logger.info(
             "Completed upload file",
@@ -301,17 +222,30 @@ def _process_one_file(
         )
         return True
     except AppError as exc:
+        if uploadedPublicId and photoId is None:
+            _queue_failed_upload_asset(uploadedPublicId)
         logger.warning(
             "Upload file failed",
             extra={"job_id": job_id, "event_id": event.id, "file_name": staged_file.file_name, "code": exc.code},
         )
         return False
     except Exception as exc:
+        if uploadedPublicId and photoId is None:
+            _queue_failed_upload_asset(uploadedPublicId)
         logger.exception("Unexpected failure while processing upload job %s file %s", job_id, staged_file.file_name)
         return False
 
 
+def _queue_failed_upload_asset(publicId: str) -> None:
+    try:
+        queue_media_cleanup(provider="cloudinary", assetKeys=[publicId])
+        drain_media_cleanup(assetKeys=[publicId], provider="cloudinary")
+    except Exception:
+        logger.warning("Failed upload media cleanup could not be completed")
+
+
 def _insert_photo_row(event_id: str, uploader_user_id: str | None, uploader_name: str | None, upload_result: dict) -> str:
+    _require_upload_access(uploader_user_id, event_id)
     client = get_supabase_admin_client()
     payload = {
         "event_id": event_id,
@@ -368,7 +302,7 @@ def _insert_face_index_rows(event_id: str, photo_id: str, face_records: Iterable
 def _require_upload_access(user_id: str | None, event_id: str) -> tuple[EventRecord, EventRole | str]:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
+            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload,delete_requested_at"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load this event", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -377,6 +311,8 @@ def _require_upload_access(user_id: str | None, event_id: str) -> tuple[EventRec
         raise AppError("Event not found", code="EVENT_NOT_FOUND", status=404)
 
     event = EventRecord.model_validate(response.data)
+    if event.status != "active" or response.data.get("delete_requested_at"):
+        raise AppError("This event is not accepting photo uploads", code="EVENT_NOT_ACTIVE", status=403)
     if user_id is None:
         if event.allow_anyone_upload:
             return event, "anonymous"
@@ -420,8 +356,11 @@ def delete_event_photo(current_user: AuthenticatedUser, *, event_id: str, photo_
     _require_upload_access(current_user.user_id, event_id)
     photo = _get_event_photo_or_404(event_id, photo_id)
 
-    if photo.get("cloudinary_id"):
-        delete_event_photo_assets(public_ids=[photo["cloudinary_id"]])
+    publicId = event_photo_public_id(photo, event_id)
+    if publicId:
+        queue_media_cleanup(provider="cloudinary", assetKeys=[publicId])
+        if not drain_media_cleanup(assetKeys=[publicId], provider="cloudinary"):
+            raise AppError("Photo media cleanup is pending; retry deletion", code="PHOTO_MEDIA_CLEANUP_PENDING", status=502)
 
     client = get_supabase_admin_client()
     try:
@@ -438,7 +377,7 @@ def _get_event_photo_or_404(event_id: str, photo_id: str) -> dict:
     client = get_supabase_admin_client()
     try:
         response = client.table("photos").select(
-            "id,event_id,cloudinary_id,original_filename"
+            "id,event_id,cloudinary_id,cloudinary_url,original_filename"
         ).eq("id", photo_id).eq("event_id", event_id).maybe_single().execute()
     except Exception as exc:
         if not _is_missing_original_filename_column(exc):
@@ -446,7 +385,7 @@ def _get_event_photo_or_404(event_id: str, photo_id: str) -> dict:
 
         try:
             response = client.table("photos").select(
-                "id,event_id,cloudinary_id"
+                "id,event_id,cloudinary_id,cloudinary_url"
             ).eq("id", photo_id).eq("event_id", event_id).maybe_single().execute()
         except Exception as retry_exc:
             raise AppError("PictureMe could not load this photo", code="PHOTO_FETCH_FAILED", status=500) from retry_exc
@@ -472,7 +411,9 @@ def _existing_filename_keys(event_id: str) -> set[str]:
     }
 
 
-def _stage_zip_upload(zip_filename: str, content: bytes, seen_filenames: set[str]) -> list[StagedUploadFile]:
+def _stage_zip_upload(
+    zip_filename: str, content: bytes, seen_filenames: set[str], remainingFiles: int, remainingBytes: int
+) -> list[StagedUploadFile]:
     staged_files: list[StagedUploadFile] = []
     try:
         archive = ZipFile(BytesIO(content))
@@ -485,22 +426,23 @@ def _stage_zip_upload(zip_filename: str, content: bytes, seen_filenames: set[str
         ) from exc
 
     with archive:
-        for entry in archive.infolist():
-            if entry.is_dir():
-                continue
-
-            entry_name = _clean_filename(entry.filename)
-            if not entry_name or entry_name.startswith("."):
-                continue
+        entries = _preflight_zip_entries(archive, remainingFiles, remainingBytes)
+        for entry, entry_name in entries:
+            availableBytes = min(getSettings().max_event_photo_size_bytes, remainingBytes)
+            with archive.open(entry) as member:
+                memberContent = member.read(availableBytes + 1)
+            if len(memberContent) > availableBytes:
+                raise AppError("ZIP member exceeds the upload byte limit", code="UPLOAD_TOO_LARGE", status=422)
 
             staged_files.append(
                 _stage_image_file(
                     entry_name,
                     _content_type_for_filename(entry_name),
-                    archive.read(entry),
+                    memberContent,
                     seen_filenames,
                 )
             )
+            remainingBytes -= len(memberContent)
 
     if not staged_files:
         raise AppError(
@@ -511,6 +453,31 @@ def _stage_zip_upload(zip_filename: str, content: bytes, seen_filenames: set[str
         )
 
     return staged_files
+
+
+def _preflight_zip_entries(archive: ZipFile, remainingFiles: int, remainingBytes: int) -> list[tuple[ZipInfo, str]]:
+    """Reject oversized ZIP metadata and declared expansion before opening a member."""
+    settings = getSettings()
+    entries = archive.infolist()
+    if len(entries) > settings.max_event_upload_batch_files:
+        raise AppError("Too many ZIP entries were submitted", code="UPLOAD_BATCH_TOO_LARGE", status=422)
+    selectedEntries: list[tuple[ZipInfo, str]] = []
+    declaredBytes = 0
+    for entry in entries:
+        if entry.is_dir():
+            continue
+        entryName = _clean_filename(entry.filename)
+        if not entryName or entryName.startswith("."):
+            continue
+        selectedEntries.append((entry, entryName))
+        if len(selectedEntries) > remainingFiles:
+            raise AppError("Too many photos were submitted in one batch", code="UPLOAD_BATCH_TOO_LARGE", status=422)
+        if entry.file_size > settings.max_event_photo_size_bytes:
+            raise AppError("ZIP member exceeds the upload byte limit", code="UPLOAD_TOO_LARGE", status=422)
+        declaredBytes += entry.file_size
+        if declaredBytes > remainingBytes:
+            raise AppError("ZIP members exceed the upload byte limit", code="UPLOAD_TOO_LARGE", status=422)
+    return selectedEntries
 
 
 def _stage_image_file(

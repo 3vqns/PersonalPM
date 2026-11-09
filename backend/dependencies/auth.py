@@ -1,8 +1,11 @@
 """Supabase bearer-token validation dependency."""
 
 from dataclasses import dataclass
+from base64 import urlsafe_b64decode
+from binascii import Error as Base64Error
 from functools import lru_cache
-from time import monotonic
+import json
+from time import monotonic, time
 from typing import Any
 
 from fastapi import Depends, Request
@@ -94,15 +97,41 @@ async def get_optional_authenticated_user(
 def _get_cached_authenticated_user(token: str) -> AuthenticatedUser:
     now = monotonic()
     ttl_seconds = getSettings().auth_user_cache_ttl_seconds
+    tokenExpiry = _token_expiry(token)
+    if tokenExpiry is not None and tokenExpiry <= time():
+        raise AppError("Invalid bearer token", code="UNAUTHORIZED", status=401)
     if ttl_seconds > 0:
         cached = _auth_user_cache.get(token)
         if cached and cached[0] > now:
             return cached[1]
 
     current_user = _fetch_authenticated_user(token)
-    if ttl_seconds > 0:
-        _auth_user_cache[token] = (now + ttl_seconds, current_user)
+    if ttl_seconds > 0 and tokenExpiry is not None:
+        remainingValidity = tokenExpiry - time()
+        if remainingValidity > 0:
+            _auth_user_cache[token] = (now + min(ttl_seconds, remainingValidity), current_user)
+            _evict_auth_cache(now)
     return current_user
+
+
+def _token_expiry(token: str) -> float | None:
+    try:
+        encodedPayload = token.split(".")[1]
+        payload = json.loads(urlsafe_b64decode(encodedPayload + "=" * (-len(encodedPayload) % 4)))
+        expiry = payload.get("exp")
+        return float(expiry) if isinstance(expiry, (int, float)) else None
+    except (AttributeError, Base64Error, IndexError, ValueError, TypeError):
+        return None
+
+
+def _evict_auth_cache(now: float) -> None:
+    for cachedToken, (expiresAt, _) in list(_auth_user_cache.items()):
+        if expiresAt <= now:
+            _auth_user_cache.pop(cachedToken, None)
+    maxEntries = getSettings().authUserCacheMaxEntries
+    while len(_auth_user_cache) > maxEntries:
+        oldestToken = next(iter(_auth_user_cache))
+        _auth_user_cache.pop(oldestToken, None)
 
 
 def _fetch_authenticated_user(token: str) -> AuthenticatedUser:

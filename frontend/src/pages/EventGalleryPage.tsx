@@ -618,24 +618,7 @@ function TopUploadersPanel({ uploaders }: { uploaders: EventPerson[] }) {
 }
 
 async function loadEventWithAccessRepair(eventId: string) {
-  try {
-    return await apiFetch<EventDetail>(`/api/events/${eventId}`);
-  } catch (requestError) {
-    if (!isRecoverableEventAccessError(requestError)) {
-      throw requestError;
-    }
-
-    await apiFetch(`/api/events/${eventId}/join`, { method: "POST" });
-    return apiFetch<EventDetail>(`/api/events/${eventId}`);
-  }
-}
-
-function isRecoverableEventAccessError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return /do not have access|forbidden|event access/i.test(error.message);
+  return apiFetch<EventDetail>(`/api/events/${eventId}`);
 }
 
 function getGalleryLoadMessage(error: unknown) {

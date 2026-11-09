@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import logging
-import time
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import cloudinary.api
 import cloudinary.uploader
-import cloudinary.utils
 from fastapi import UploadFile
 
 from backend.config import getSettings
 from backend.core.cloudinary import configure_cloudinary
 from backend.core.retry import run_with_retries
 from backend.errors import AppError
-from backend.schemas.upload import CloudinaryUploadToken
 
 logger = logging.getLogger("pictureme.cloudinary")
 _ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
@@ -52,53 +50,6 @@ async def upload_event_cover(*, event_id: str, upload: UploadFile) -> str:
         eager=[
             {"width": 1600, "height": 900, "crop": "fill", "gravity": "auto", "quality": "auto", "fetch_format": "auto"},
         ],
-    )
-
-
-async def upload_face_profile_selfie(*, user_id: str, sort_order: int, upload: UploadFile) -> dict[str, str]:
-    """Upload one enrollment selfie and return the stored Cloudinary metadata."""
-    settings = getSettings()
-    public_id = f"{settings.face_profile_folder}/{user_id}/{sort_order:02d}-{uuid4().hex}"
-    secure_url = await _upload_browser_image(
-        upload=upload,
-        asset_folder=f"{settings.face_profile_folder}/{user_id}",
-        public_id=public_id,
-        operation_name="cloudinary.upload_face_profile_selfie",
-        max_bytes=settings.max_face_profile_selfie_size_bytes,
-        upload_error_code="SELFIE_UPLOAD_FAILED",
-        upload_error_message="PictureMe could not store your enrollment selfie",
-        eager=[],
-    )
-    return {
-        "public_id": public_id,
-        "cloudinary_url": secure_url,
-    }
-
-
-_EAGER_TRANSFORMATION = "c_limit,f_auto,h_640,q_auto,w_640"
-
-
-def generate_event_photo_upload_params(*, event_id: str) -> CloudinaryUploadToken:
-    """Return signed Cloudinary upload params the browser can use to upload directly."""
-    configure_cloudinary()
-    settings = getSettings()
-    timestamp = int(time.time())
-    folder = f"{settings.event_photo_folder}/{event_id}"
-
-    params_to_sign = {
-        "eager": _EAGER_TRANSFORMATION,
-        "folder": folder,
-        "timestamp": timestamp,
-    }
-    signature = cloudinary.utils.api_sign_request(params_to_sign, settings.cloudinary_api_secret_value)
-
-    return CloudinaryUploadToken(
-        cloudName=settings.cloudinary_cloud_name_value,
-        apiKey=settings.cloudinary_api_key_value,
-        timestamp=timestamp,
-        signature=signature,
-        folder=folder,
-        eager=_EAGER_TRANSFORMATION,
     )
 
 
@@ -179,6 +130,27 @@ def delete_face_profile_assets(*, public_ids: list[str]) -> dict[str, str]:
         raise AppError("PictureMe could not delete your enrollment selfies", code="SELFIE_DELETE_FAILED", status=500) from exc
 
 
+def cloudinary_public_id_from_url(url: str | None, expectedPrefix: str) -> str | None:
+    """Extract only an asset owned by the expected PictureMe folder."""
+    if not url:
+        return None
+    parsedUrl = urlparse(url)
+    if parsedUrl.scheme != "https" or parsedUrl.hostname != "res.cloudinary.com":
+        return None
+    pathParts = parsedUrl.path.lstrip("/").split("/", 1)
+    if not pathParts or pathParts[0] != getSettings().cloudinary_cloud_name_value:
+        return None
+    marker = "/image/upload/"
+    if marker not in parsedUrl.path:
+        return None
+    assetPath = parsedUrl.path.split(marker, 1)[1]
+    parts = assetPath.split("/")
+    if parts and parts[0].startswith("v") and parts[0][1:].isdigit():
+        parts.pop(0)
+    publicId = "/".join(parts).rsplit(".", 1)[0]
+    return publicId if publicId.startswith(expectedPrefix.rstrip("/") + "/") else None
+
+
 async def _upload_browser_image(
     *,
     upload: UploadFile,
@@ -200,7 +172,7 @@ async def _upload_browser_image(
             details={"contentType": content_type or None},
         )
 
-    content = await upload.read()
+    content = await upload.read(max_bytes + 1)
     if not content:
         raise AppError("Image upload was empty", code="INVALID_IMAGE", status=422)
     if len(content) > max_bytes:

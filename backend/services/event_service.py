@@ -42,7 +42,8 @@ from backend.schemas.event import (
     PublicEventGalleryResponse,
 )
 from backend.services.account_service import get_public_user_record
-from backend.services.cloudinary_service import upload_event_cover
+from backend.services.cloudinary_service import cloudinary_public_id_from_url, upload_event_cover
+from backend.services.media_cleanup_service import drain_media_cleanup, event_photo_public_id, iter_event_photo_asset_pages, queue_media_cleanup
 from backend.services.matching_service import trigger_user_event_match
 
 logger = logging.getLogger("pictureme.events")
@@ -94,6 +95,7 @@ async def create_event(
     settings = getSettings()
     join_token = _generate_join_token()
     collection_id = f"{settings.rekognition_collection_prefix}-{secrets.token_hex(8)}"
+    _reserve_rekognition_collection(collection_id, creator.id)
 
     try:
         run_with_retries(
@@ -104,10 +106,13 @@ async def create_event(
             func=lambda: get_rekognition_client().create_collection(CollectionId=collection_id),
         )
     except Exception as exc:
+        if _delete_rekognition_collection(collection_id, suppress_not_found=True):
+            _release_rekognition_collection(collection_id)
         raise AppError("PictureMe could not create the event collection", code="REKOGNITION_CREATE_FAILED", status=502) from exc
 
     client = get_supabase_admin_client()
     event_id: str | None = None
+    createdCoverUrl: str | None = None
 
     try:
         response = client.table("events").insert(
@@ -142,8 +147,14 @@ async def create_event(
             cover_url = await upload_event_cover(event_id=event_id, upload=cover)
             if not cover_url:
                 raise AppError("PictureMe could not upload the event cover image", code="EVENT_COVER_UPLOAD_FAILED", status=502)
+            createdCoverUrl = cover_url
             client.table("events").update({"cover_url": cover_url}).eq("id", event_id).execute()
     except Exception as exc:
+        if createdCoverUrl and event_id:
+            try:
+                _queue_event_cover(createdCoverUrl, event_id)
+            except Exception:
+                logger.warning("Event cover cleanup could not be queued after creation failure")
         if event_id is not None:
             try:
                 client.table("event_members").delete().eq("event_id", event_id).execute()
@@ -153,7 +164,8 @@ async def create_event(
                 client.table("events").delete().eq("id", event_id).execute()
             except Exception:
                 logger.warning("Failed to roll back event %s after creator membership creation failed", event_id)
-        _delete_rekognition_collection(collection_id, suppress_not_found=True)
+        if _delete_rekognition_collection(collection_id, suppress_not_found=True):
+            _release_rekognition_collection(collection_id)
         if isinstance(exc, AppError):
             raise exc
         raise AppError("PictureMe could not create the event", code="EVENT_CREATE_FAILED", status=500) from exc
@@ -210,6 +222,7 @@ async def update_event(
     if payload.private_gallery is not None:
         update_payload["private_gallery"] = False
     if await _has_upload_content(cover):
+        _event_cover_public_id(event.cover_url, event_id)
         cover_url = await upload_event_cover(event_id=event_id, upload=cover)
         if not cover_url:
             raise AppError("PictureMe could not upload the event cover image", code="EVENT_COVER_UPLOAD_FAILED", status=502)
@@ -217,9 +230,22 @@ async def update_event(
 
     if update_payload:
         try:
-            get_supabase_admin_client().table("events").update(update_payload).eq("id", event_id).execute()
+            _require_event_manager(current_user.user_id, _get_event_or_404(event_id))
+            get_supabase_admin_client().rpc("update_event_as_manager", {
+                "event_id_input": event_id,
+                "actor_id_input": current_user.user_id,
+                "patch": update_payload,
+                "old_cover_id": _event_cover_public_id(event.cover_url, event_id) if "cover_url" in update_payload else None,
+                "expected_cover_url": event.cover_url if "cover_url" in update_payload else None,
+            }).execute()
         except Exception as exc:
+            if isinstance(update_payload.get("cover_url"), str):
+                _queue_event_cover(update_payload["cover_url"], event_id)
+            if isinstance(exc, AppError):
+                raise
             raise AppError("PictureMe could not update this event", code="EVENT_UPDATE_FAILED", status=500) from exc
+        if isinstance(update_payload.get("cover_url"), str) and event.cover_url:
+            _queue_event_cover(event.cover_url, event_id)
 
     return get_event_detail(current_user, event_id=event_id)
 
@@ -229,6 +255,24 @@ def delete_event(current_user: AuthenticatedUser, *, event_id: str) -> None:
     event = _get_event_or_404(event_id)
     _require_creator(current_user.user_id, event)
     client = get_supabase_admin_client()
+
+    try:
+        client.rpc("request_event_deletion", {"event_id_input": event_id, "actor_id_input": current_user.user_id}).execute()
+        currentEvent = _get_event_or_404(event_id)
+        for photoRows in iter_event_photo_asset_pages(event_id):
+            photoIds = [publicId for row in photoRows if (publicId := event_photo_public_id(row, event_id))]
+            queue_media_cleanup(provider="cloudinary", assetKeys=photoIds)
+            if not drain_media_cleanup(assetKeys=photoIds, provider="cloudinary"):
+                raise AppError("Event media cleanup is pending; retry deletion", code="EVENT_MEDIA_CLEANUP_PENDING", status=502)
+        coverId = _event_cover_public_id(currentEvent.cover_url, event_id)
+        coverIds = [coverId] if coverId else []
+        queue_media_cleanup(provider="cloudinary", assetKeys=coverIds)
+        if not drain_media_cleanup(assetKeys=coverIds, provider="cloudinary"):
+            raise AppError("Event media cleanup is pending; retry deletion", code="EVENT_MEDIA_CLEANUP_PENDING", status=502)
+    except AppError:
+        raise
+    except Exception as exc:
+        raise AppError("PictureMe could not prepare event media cleanup", code="EVENT_MEDIA_CLEANUP_FAILED", status=500) from exc
 
     try:
         client.table("gallery_tokens").delete().eq("event_id", event_id).execute()
@@ -244,7 +288,22 @@ def delete_event(current_user: AuthenticatedUser, *, event_id: str) -> None:
     except Exception as exc:
         raise AppError("PictureMe could not delete this event", code="EVENT_DELETE_FAILED", status=500) from exc
 
-    _delete_rekognition_collection(event.rekognition_collection_id, suppress_not_found=True)
+    if _delete_rekognition_collection(event.rekognition_collection_id, suppress_not_found=True):
+        _release_rekognition_collection(event.rekognition_collection_id)
+
+
+def _event_cover_public_id(url: str | None, eventId: str) -> str | None:
+    publicId = cloudinary_public_id_from_url(url, f"{getSettings().event_cover_folder}/{eventId}")
+    if url and not publicId:
+        raise AppError("Event cover asset ID requires provider review", code="MEDIA_ASSET_ID_UNKNOWN", status=409)
+    return publicId
+
+
+def _queue_event_cover(url: str, eventId: str) -> None:
+    publicId = _event_cover_public_id(url, eventId)
+    if publicId:
+        queue_media_cleanup(provider="cloudinary", assetKeys=[publicId])
+        drain_media_cleanup(assetKeys=[publicId], provider="cloudinary")
 
 
 def list_event_members(current_user: AuthenticatedUser, *, event_id: str) -> list[EventMemberResponse]:
@@ -320,10 +379,15 @@ def update_event_member_role(
         raise AppError("Event member not found", code="MEMBER_NOT_FOUND", status=404)
 
     try:
-        get_supabase_admin_client().table("event_members").update({"role": role}).eq("event_id", event_id).eq(
-            "user_id", member_user_id
-        ).execute()
+        get_supabase_admin_client().rpc("set_event_member_role_as_creator", {
+            "event_id_input": event_id,
+            "actor_id_input": current_user.user_id,
+            "member_id_input": member_user_id,
+            "role_input": role,
+        }).execute()
     except Exception as exc:
+        if _is_permission_revocation_error(exc):
+            raise AppError("Only the event creator can perform this action", code="FORBIDDEN", status=403) from exc
         raise AppError("PictureMe could not update this role", code="MEMBER_ROLE_UPDATE_FAILED", status=500) from exc
 
     return {"success": True}
@@ -334,6 +398,7 @@ def remove_event_member(
     *,
     event_id: str,
     member_user_id: str,
+    creatorOnly: bool = False,
 ) -> dict[str, bool]:
     """Fully remove one non-creator user from an event and its access rows."""
     event = _get_event_or_404(event_id)
@@ -350,23 +415,27 @@ def remove_event_member(
     if manager_role == "admin" and membership.role == "admin":
         raise AppError("Only the owner can remove another admin", code="MEMBER_REMOVE_FORBIDDEN", status=403)
 
-    client = get_supabase_admin_client()
     try:
-        client.table("event_gallery_access").delete().eq("event_id", event_id).eq("user_id", member_user_id).execute()
-        client.table("user_photo_matches").delete().eq("event_id", event_id).eq("user_id", member_user_id).execute()
-        client.table("event_members").delete().eq("event_id", event_id).eq("user_id", member_user_id).execute()
+        get_supabase_admin_client().rpc("remove_event_member_as_manager", {
+            "event_id_input": event_id,
+            "actor_id_input": current_user.user_id,
+            "member_id_input": member_user_id,
+            "creator_only": creatorOnly,
+        }).execute()
     except Exception as exc:
+        if _is_permission_revocation_error(exc):
+            raise AppError("You cannot remove this event member", code="FORBIDDEN", status=403) from exc
         raise AppError("PictureMe could not remove this event member", code="MEMBER_REMOVE_FAILED", status=500) from exc
 
     return {"success": True}
 
 
 def request_gallery_access(current_user: AuthenticatedUser, *, event_id: str) -> GalleryAccessRequestResponse:
-    """Compatibility endpoint that now repairs public event membership."""
+    """Return current member access without granting membership from an event ID."""
     event = _get_event_or_404(event_id)
     if current_user.user_id == event.creator_id:
         return GalleryAccessRequestResponse(status="owner")
-    _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
+    _require_event_role(current_user.user_id, event)
     return GalleryAccessRequestResponse(status="approved")
 
 
@@ -401,12 +470,11 @@ def invite_gallery_access_by_email(
 ) -> GalleryAccessResponse:
     """Add an existing PictureMe user to the event and approve private gallery access."""
     event = _get_event_or_404(event_id)
-    _require_event_manager(current_user.user_id, event)
+    _require_creator(current_user.user_id, event)
     invited_user = _get_public_user_by_email(email.strip().lower())
     if invited_user.id == event.creator_id:
         raise AppError("The event creator already has gallery access", code="ACCESS_INVITE_INVALID", status=422)
 
-    _ensure_event_member(event_id=event.id, user_id=invited_user.id)
     row = _upsert_gallery_access(
         event_id=event.id,
         user_id=invited_user.id,
@@ -436,12 +504,10 @@ def update_gallery_access_status(
 ) -> GalleryAccessResponse:
     """Approve or move a private-gallery access row back to pending."""
     event = _get_event_or_404(event_id)
-    _require_event_manager(current_user.user_id, event)
+    _require_creator(current_user.user_id, event)
     if user_id == event.creator_id:
         raise AppError("The event creator access cannot be changed", code="ACCESS_CHANGE_FORBIDDEN", status=403)
     target_user = _get_public_user_by_id(user_id)
-    if status == "approved":
-        _ensure_event_member(event_id=event.id, user_id=user_id)
     row = _upsert_gallery_access(event_id=event.id, user_id=user_id, status=status, invited_by=current_user.user_id)
     return GalleryAccessResponse(
         id=str(row["id"]),
@@ -458,18 +524,12 @@ def update_gallery_access_status(
 
 
 def remove_gallery_access(current_user: AuthenticatedUser, *, event_id: str, user_id: str) -> dict[str, bool]:
-    """Remove one user's private-gallery access row. Event managers may do this."""
+    """Revoke gallery membership through the same removal lifecycle."""
     event = _get_event_or_404(event_id)
-    _require_event_manager(current_user.user_id, event)
+    _require_creator(current_user.user_id, event)
     if user_id == event.creator_id:
         raise AppError("The event creator access cannot be removed", code="ACCESS_CHANGE_FORBIDDEN", status=403)
-    try:
-        get_supabase_admin_client().table("event_gallery_access").delete().eq("event_id", event.id).eq(
-            "user_id", user_id
-        ).execute()
-    except Exception as exc:
-        raise AppError("PictureMe could not remove gallery access", code="ACCESS_REMOVE_FAILED", status=500) from exc
-    return {"success": True}
+    return remove_event_member(current_user, event_id=event_id, member_user_id=user_id, creatorOnly=True)
 
 
 def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) -> JoinPreviewResponse:
@@ -502,9 +562,15 @@ def get_join_preview(token: str, current_user: AuthenticatedUser | None = None) 
 
 
 def get_public_event_gallery(token: str, current_user: AuthenticatedUser | None = None) -> PublicEventGalleryResponse:
-    """Return the public event gallery for an invite token."""
+    """Allow join-link gallery reads only for permitted anonymous uploads or members."""
     preview = get_join_preview(token, current_user=current_user)
     event = _get_event_by_join_token(token)
+    if current_user is not None and _is_removed_member(event.id, current_user.user_id):
+        raise AppError("The organizer must restore your event access", code="FORBIDDEN", status=403)
+    if not event.allow_anyone_upload:
+        if current_user is None:
+            raise AppError("Join before viewing this gallery", code="FORBIDDEN", status=403)
+        _require_event_role(current_user.user_id, event)
     photo_records = _list_public_event_photos(event.id)
     return PublicEventGalleryResponse(
         event=preview,
@@ -518,8 +584,9 @@ def join_event(
     event_id: str,
     background_tasks: BackgroundTasks,
 ) -> EventJoinResponse:
-    """Join an event if needed and enqueue the async match kickoff when eligible."""
+    """Return an existing membership; an event ID cannot authorize a new join."""
     event = _get_event_or_404(event_id)
+    _require_event_role(current_user.user_id, event)
     return _join_event_record(current_user, event=event, background_tasks=background_tasks)
 
 
@@ -531,7 +598,7 @@ def join_event_by_token(
 ) -> EventJoinResponse:
     """Join an event directly from the invite token used by QR codes and join links."""
     event = _get_event_by_join_token(token)
-    return _join_event_record(current_user, event=event, background_tasks=background_tasks)
+    return _join_event_record(current_user, event=event, background_tasks=background_tasks, joinToken=token)
 
 
 def _join_event_record(
@@ -539,6 +606,7 @@ def _join_event_record(
     *,
     event: EventRecord,
     background_tasks: BackgroundTasks,
+    joinToken: str | None = None,
 ) -> EventJoinResponse:
     public_user = get_public_user_record(current_user)
     if event.creator_id == current_user.user_id:
@@ -548,12 +616,17 @@ def _join_event_record(
     already_joined = membership is not None
 
     if not already_joined:
-        _ensure_event_member(event_id=event.id, user_id=current_user.user_id)
+        if joinToken is None or _is_removed_member(event.id, current_user.user_id):
+            raise AppError("The organizer must grant your event access", code="FORBIDDEN", status=403)
+        newlyJoined = _ensure_event_member(event_id=event.id, user_id=current_user.user_id, joinToken=joinToken)
+        already_joined = not newlyJoined
         membership = _get_membership(event.id, current_user.user_id)
+        if membership is None:
+            raise AppError("Your event access is no longer available", code="FORBIDDEN", status=403)
 
     gallery_access_status: GalleryAccessStatus = "approved"
 
-    if gallery_access_status == "approved" and public_user.has_face_profile:
+    if not already_joined and gallery_access_status == "approved" and public_user.has_face_profile:
         background_tasks.add_task(
             trigger_user_event_match,
             user_id=current_user.user_id,
@@ -722,7 +795,6 @@ def _get_event_by_join_token(token: str) -> EventRecord:
         logger.warning(
             "Failed to load invite preview for token fingerprint %s",
             fingerprint,
-            exc_info=exc,
         )
         raise AppError(
             "PictureMe could not load this event invite",
@@ -808,22 +880,31 @@ def _membership_exists(event_id: str, user_id: str) -> bool:
     return _get_membership(event_id, user_id) is not None
 
 
-def _ensure_event_member(*, event_id: str, user_id: str, role: EventRole = "member") -> None:
-    existing_membership = _get_membership(event_id, user_id)
-    if existing_membership is not None:
-        return
-
+def _is_removed_member(eventId: str, userId: str) -> bool:
     try:
-        get_supabase_admin_client().table("event_members").upsert(
-            {
-                "event_id": event_id,
-                "user_id": user_id,
-                "role": role,
-            },
-            on_conflict="event_id,user_id",
-        ).execute()
+        response = get_supabase_admin_client().table("event_member_removals").select("user_id").eq(
+            "event_id", eventId
+        ).eq("user_id", userId).limit(1).execute()
     except Exception as exc:
+        raise AppError("PictureMe could not verify event removal state", code="EVENT_ACCESS_FAILED", status=500) from exc
+    return bool(response.data)
+
+
+def _ensure_event_member(*, event_id: str, user_id: str, joinToken: str) -> bool:
+    """Create membership only through a token-bound database decision."""
+    try:
+        response = get_supabase_admin_client().rpc("join_event_member_with_token", {
+            "event_id_input": event_id,
+            "user_id_input": user_id,
+            "token_input": joinToken,
+        }).execute()
+    except Exception as exc:
+        if "event access requires organizer restoration" in str(exc):
+            raise AppError("The organizer must restore your event access", code="FORBIDDEN", status=403) from exc
+        if "join token is invalid" in str(exc):
+            raise AppError("This join link is unavailable", code="FORBIDDEN", status=403) from exc
         raise AppError("PictureMe could not add this event member", code="EVENT_JOIN_FAILED", status=500) from exc
+    return response.data is True
 
 
 def _require_event_role(user_id: str, event: EventRecord) -> EventRole:
@@ -1018,32 +1099,28 @@ def _fetch_gallery_access_rows(event_id: str) -> list[dict]:
 
 
 def _upsert_gallery_access(*, event_id: str, user_id: str, status: str, invited_by: str) -> dict:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "event_id": event_id,
-        "user_id": user_id,
-        "status": status,
-        "invited_by": invited_by,
-        "approved_at": now.isoformat() if status == "approved" else None,
-    }
     try:
-        response = get_supabase_admin_client().table("event_gallery_access").upsert(
-            payload,
-            on_conflict="event_id,user_id",
-        ).execute()
+        response = get_supabase_admin_client().rpc("set_gallery_access_as_creator", {
+            "event_id_input": event_id,
+            "actor_id_input": invited_by,
+            "member_id_input": user_id,
+            "status_input": status,
+        }).execute()
     except Exception as exc:
+        if _is_permission_revocation_error(exc):
+            raise AppError("Only the event creator can manage gallery access", code="FORBIDDEN", status=403) from exc
         raise AppError("PictureMe could not save gallery access", code="ACCESS_SAVE_FAILED", status=500) from exc
     row = get_first_row(response.data)
     if row:
         return row
-    return {
-        "id": f"{event_id}:{user_id}",
-        "event_id": event_id,
-        "user_id": user_id,
-        "status": status,
-        "requested_at": now,
-        "approved_at": now if status == "approved" else None,
-    }
+    raise AppError("PictureMe could not read saved gallery access", code="ACCESS_SAVE_FAILED", status=500)
+
+
+def _is_permission_revocation_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(fragment in message for fragment in (
+        "permission has been removed", "only the creator", "removal is forbidden",
+    ))
 
 
 def _get_upload_counts_by_user(event_id: str) -> dict[str, int]:
@@ -1122,11 +1199,32 @@ def _generate_join_token() -> str:
     return secrets.token_urlsafe(9).replace("-", "").replace("_", "").lower()[:12]
 
 
-def _delete_rekognition_collection(collection_id: str, *, suppress_not_found: bool = False) -> None:
+def _reserve_rekognition_collection(collectionId: str, creatorId: str) -> None:
+    settings = getSettings()
+    try:
+        get_supabase_admin_client().rpc("reserve_event_collection", {
+            "collection_id_input": collectionId,
+            "creator_id_input": creatorId,
+            "max_per_creator": settings.maxEventCollectionsPerCreator,
+            "max_total": settings.maxEventCollectionsTotal,
+        }).execute()
+    except Exception as exc:
+        raise AppError("Event collection budget is full", code="EVENT_LIMIT_REACHED", status=429) from exc
+
+
+def _release_rekognition_collection(collectionId: str) -> None:
+    try:
+        get_supabase_admin_client().table("event_collection_reservations").delete().eq("collection_id", collectionId).execute()
+    except Exception:
+        logger.warning("Rekognition collection reservation still needs cleanup")
+
+
+def _delete_rekognition_collection(collection_id: str, *, suppress_not_found: bool = False) -> bool:
     try:
         get_rekognition_client().delete_collection(CollectionId=collection_id)
+        return True
     except Exception as exc:
         if suppress_not_found:
             logger.warning("Failed to delete Rekognition collection %s", collection_id)
-            return
+            return False
         raise AppError("PictureMe could not delete the event collection", code="REKOGNITION_DELETE_FAILED", status=502) from exc

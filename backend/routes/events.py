@@ -273,7 +273,7 @@ async def post_upload_token(
     event_id: str,
     current_user: AuthenticatedUser | None = Depends(get_optional_authenticated_user),
 ) -> CloudinaryUploadToken:
-    """Return signed Cloudinary upload params so the browser can upload photos directly."""
+    """Reject the retired direct browser upload route."""
     return get_event_upload_token(current_user, event_id=event_id)
 
 
@@ -284,7 +284,7 @@ async def post_index_photos(
     background_tasks: BackgroundTasks,
     current_user: AuthenticatedUser | None = Depends(get_optional_authenticated_user),
 ) -> UploadJobStartResponse:
-    """Accept references to photos already uploaded to Cloudinary and index them asynchronously."""
+    """Reject the retired direct photo indexing route."""
     return index_direct_uploads(
         current_user,
         event_id=event_id,

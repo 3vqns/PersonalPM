@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from backend.app_logging import get_request_id
+from backend.app_logging import get_request_id, is_capability_request, redacted_request_path
 
 logger = logging.getLogger("pictureme.errors")
 
@@ -45,13 +45,10 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-        logger.warning(
-            "App error on %s %s: %s (%s)",
-            request.method,
-            request.url.path,
-            exc.message,
-            exc.code,
-        )
+        if is_capability_request(request):
+            logger.warning("App error on %s %s: %s", request.method, redacted_request_path(request), exc.code)
+        else:
+            logger.warning("App error on %s %s: %s (%s)", request.method, redacted_request_path(request), exc.message, exc.code)
         return error_response(exc.message, exc.code, exc.status, exc.details, headers=_error_headers(request))
 
     @app.exception_handler(404)
@@ -60,7 +57,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-        logger.info("Validation error on %s %s", request.method, request.url.path)
+        logger.info("Validation error on %s %s", request.method, redacted_request_path(request))
         return error_response(
             "Validation failed",
             "VALIDATION_ERROR",
@@ -71,5 +68,8 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def generic_error_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+        if is_capability_request(request):
+            logger.error("Unhandled error on %s %s", request.method, redacted_request_path(request))
+        else:
+            logger.exception("Unhandled error on %s %s", request.method, redacted_request_path(request), exc_info=exc)
         return error_response("Internal server error", "INTERNAL_ERROR", 500, headers=_error_headers(request))

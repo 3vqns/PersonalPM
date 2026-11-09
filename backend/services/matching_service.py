@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from threading import BoundedSemaphore
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -15,6 +16,7 @@ from backend.core.retry import run_with_retries
 from backend.core.rekognition import get_rekognition_client
 from backend.core.supabase_admin import get_supabase_admin_client
 from backend.errors import AppError
+from backend.services.cloudinary_service import cloudinary_public_id_from_url
 from backend.schemas.account import FaceProfileImageRecord
 from backend.schemas.event import EventMemberRecord, EventRecord
 
@@ -22,10 +24,17 @@ logger = logging.getLogger("pictureme.matching")
 _MATCHABLE_SELFIE_TYPES = {"image/jpeg", "image/png"}
 _FACE_PROFILE_BASE_COLUMNS = "id,user_id,storage_path,sort_order,created_at"
 _FACE_PROFILE_EXTENDED_COLUMNS = f"{_FACE_PROFILE_BASE_COLUMNS},cloudinary_id,cloudinary_url"
+_matchingSemaphore = BoundedSemaphore(getSettings().matchingMaxConcurrentJobs)
 
 
 def trigger_user_event_match(*, user_id: str, event_id: str, reason: str) -> None:
     """Match one user's enrollment selfies against one event collection."""
+    with _matchingSemaphore:
+        _run_user_event_match(user_id=user_id, event_id=event_id, reason=reason)
+
+
+def _run_user_event_match(*, user_id: str, event_id: str, reason: str) -> None:
+    """Perform one bounded matching pass after acquiring worker capacity."""
     try:
         event = _get_active_event_or_none(event_id)
         if event is None:
@@ -42,6 +51,9 @@ def trigger_user_event_match(*, user_id: str, event_id: str, reason: str) -> Non
             return
 
         best_photo_scores = _collect_best_photo_scores(event=event, selfie_assets=selfie_assets)
+        if _get_active_event_or_none(event_id) is None or not _user_has_event_access(user_id, event) or not _list_matchable_face_profile_images(user_id):
+            logger.info("Skipping stale match result for user %s on event %s", user_id, event_id)
+            return
         _persist_user_photo_matches(user_id=user_id, event_id=event.id, best_photo_scores=best_photo_scores)
         logger.info(
             "Completed match run for user %s on event %s with %s matched photos (%s)",
@@ -75,6 +87,14 @@ def trigger_user_active_event_rematch(*, user_id: str, reason: str) -> None:
             trigger_user_event_match(user_id=user_id, event_id=event.id, reason=reason)
     except Exception:
         logger.exception("Active-event rematch failed for user %s (%s)", user_id, reason)
+
+
+def ensure_event_rematch_capacity(eventId: str) -> None:
+    _list_matchable_event_members(eventId)
+
+
+def ensure_user_rematch_capacity(userId: str) -> None:
+    _list_active_events_for_user(userId)
 
 
 def _collect_best_photo_scores(*, event: EventRecord, selfie_assets: list[FaceProfileImageRecord]) -> dict[str, float]:
@@ -189,23 +209,24 @@ def _persist_user_photo_matches(*, user_id: str, event_id: str, best_photo_score
 
 
 def _download_face_profile_image(asset: FaceProfileImageRecord) -> bytes:
-    if asset.cloudinary_url:
+    maxBytes = getSettings().max_face_profile_selfie_size_bytes
+    legacyUrl = asset.cloudinary_url or (asset.storage_path if _is_remote_face_profile_path(asset.storage_path) else None)
+    if legacyUrl:
+        _require_owned_legacy_selfie_url(legacyUrl, asset.user_id)
         try:
-            with urlopen(asset.cloudinary_url) as response:
-                return response.read()
+            with urlopen(legacyUrl, timeout=10) as response:
+                content = response.read(maxBytes + 1)
         except Exception as exc:
             raise AppError("PictureMe could not download an enrollment selfie", code="SELFIE_DOWNLOAD_FAILED", status=500) from exc
-    if _is_remote_face_profile_path(asset.storage_path):
+    else:
+        _require_owned_storage_path(asset.storage_path, asset.user_id)
         try:
-            with urlopen(asset.storage_path) as response:
-                return response.read()
+            content = get_supabase_admin_client().storage.from_(getSettings().face_profile_bucket).download(asset.storage_path)
         except Exception as exc:
             raise AppError("PictureMe could not download an enrollment selfie", code="SELFIE_DOWNLOAD_FAILED", status=500) from exc
-
-    try:
-        return get_supabase_admin_client().storage.from_(getSettings().face_profile_bucket).download(asset.storage_path)
-    except Exception as exc:
-        raise AppError("PictureMe could not download an enrollment selfie", code="SELFIE_DOWNLOAD_FAILED", status=500) from exc
+    if len(content) > maxBytes:
+        raise AppError("Enrollment selfie exceeds the matching byte limit", code="SELFIE_TOO_LARGE", status=422)
+    return content
 
 
 def _search_faces_by_image(
@@ -317,15 +338,29 @@ def _is_remote_face_profile_path(path: str) -> bool:
     return path.startswith(("http://", "https://"))
 
 
+def _require_owned_legacy_selfie_url(url: str, userId: str) -> None:
+    expectedPrefix = f"{getSettings().face_profile_folder.rstrip('/')}/{userId}"
+    if cloudinary_public_id_from_url(url, expectedPrefix) is None:
+        raise AppError("Legacy enrollment selfie location requires review", code="SELFIE_LOCATION_UNTRUSTED", status=409)
+
+
+def _require_owned_storage_path(storagePath: str, userId: str) -> None:
+    pathParts = storagePath.split("/")
+    if len(pathParts) < 2 or pathParts[0] != userId or any(part in {"", ".", ".."} for part in pathParts):
+        raise AppError("Enrollment selfie path is outside this account", code="SELFIE_LOCATION_UNTRUSTED", status=409)
+
+
 def _list_matchable_event_members(event_id: str) -> list[EventMemberRecord]:
     try:
         members_response = get_supabase_admin_client().table("event_members").select("id,event_id,user_id,role,joined_at").eq(
             "event_id", event_id
-        ).execute()
+        ).limit(getSettings().matchingMaxMembersPerEvent + 1).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load event members for rematch", code="MEMBERS_FETCH_FAILED", status=500) from exc
 
     members = [EventMemberRecord.model_validate(row) for row in (members_response.data or [])]
+    if len(members) > getSettings().matchingMaxMembersPerEvent:
+        raise AppError("Event matching member budget is full", code="MATCHING_BUDGET_EXCEEDED", status=429)
     if not members:
         return []
 
@@ -349,12 +384,16 @@ def _list_active_events_for_user(user_id: str) -> list[EventRecord]:
     try:
         created_response = get_supabase_admin_client().table("events").select(
             "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
-        ).eq("creator_id", user_id).eq("status", "active").execute()
-        membership_response = get_supabase_admin_client().table("event_members").select("event_id").eq("user_id", user_id).execute()
+        ).eq("creator_id", user_id).eq("status", "active").limit(getSettings().matchingMaxActiveEventsPerUser + 1).execute()
+        membership_response = get_supabase_admin_client().table("event_members").select("event_id").eq("user_id", user_id).limit(
+            getSettings().matchingMaxActiveEventsPerUser + 1
+        ).execute()
     except Exception as exc:
         raise AppError("PictureMe could not load active events for rematch", code="EVENT_FETCH_FAILED", status=500) from exc
 
     membership_ids = [row["event_id"] for row in (membership_response.data or []) if row.get("event_id")]
+    if len(created_response.data or []) > getSettings().matchingMaxActiveEventsPerUser or len(membership_ids) > getSettings().matchingMaxActiveEventsPerUser:
+        raise AppError("Active-event matching budget is full", code="MATCHING_BUDGET_EXCEEDED", status=429)
     member_events: list[EventRecord] = []
     if membership_ids:
         try:
@@ -369,13 +408,15 @@ def _list_active_events_for_user(user_id: str) -> list[EventRecord]:
     deduped: dict[str, EventRecord] = {event.id: event for event in created_events}
     for event in member_events:
         deduped[event.id] = event
+    if len(deduped) > getSettings().matchingMaxActiveEventsPerUser:
+        raise AppError("Active-event matching budget is full", code="MATCHING_BUDGET_EXCEEDED", status=429)
     return list(deduped.values())
 
 
 def _get_active_event_or_none(event_id: str) -> EventRecord | None:
     try:
         response = get_supabase_admin_client().table("events").select(
-            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload"
+            "id,creator_id,name,description,date,join_token,rekognition_collection_id,cover_url,status,created_at,tags,allow_anyone_upload,delete_requested_at"
         ).eq("id", event_id).maybe_single().execute()
     except Exception as exc:
         raise AppError("PictureMe could not load an event for matching", code="EVENT_FETCH_FAILED", status=500) from exc
@@ -384,7 +425,7 @@ def _get_active_event_or_none(event_id: str) -> EventRecord | None:
         return None
 
     event = EventRecord.model_validate(response.data)
-    return event if event.status == "active" else None
+    return event if event.status == "active" and not response.data.get("delete_requested_at") else None
 
 
 def _user_has_event_access(user_id: str, event: EventRecord) -> bool:

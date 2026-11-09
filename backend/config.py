@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     )
     face_profile_bucket: str = "face-profile-images"
     auth_user_cache_ttl_seconds: float = Field(default=30.0, ge=0, le=300)
+    authUserCacheMaxEntries: int = Field(default=512, ge=1, le=10000, validation_alias="AUTH_USER_CACHE_MAX_ENTRIES")
 
     # AWS
     aws_region: str = "us-east-1"
@@ -50,11 +51,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PICTUREME_AWS_SESSION_TOKEN", "AWS_SESSION_TOKEN"),
     )
     rekognition_collection_prefix: str = "pictureme-event"
+    maxEventCollectionsPerCreator: int = Field(default=10, ge=1, le=1000, validation_alias="MAX_EVENT_COLLECTIONS_PER_CREATOR")
+    maxEventCollectionsTotal: int = Field(default=500, ge=1, le=100000, validation_alias="MAX_EVENT_COLLECTIONS_TOTAL")
     aws_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
     aws_read_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     aws_retry_attempts: int = Field(default=3, ge=1, le=10)
     matching_similarity_threshold: float = Field(default=80.0, ge=0, le=100)
     matching_max_faces_per_selfie: int = Field(default=50, ge=1, le=4096)
+    matchingMaxMembersPerEvent: int = Field(default=50, ge=1, le=5000, validation_alias="MATCHING_MAX_MEMBERS_PER_EVENT")
+    matchingMaxActiveEventsPerUser: int = Field(default=20, ge=1, le=1000, validation_alias="MATCHING_MAX_ACTIVE_EVENTS_PER_USER")
+    matchingMaxConcurrentJobs: int = Field(default=2, ge=1, le=32, validation_alias="MATCHING_MAX_CONCURRENT_JOBS")
 
     # Cloudinary
     cloudinary_cloud_name: str | None = Field(default=None, min_length=1)
@@ -72,6 +78,8 @@ class Settings(BaseSettings):
     max_event_cover_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     max_event_photo_size_bytes: int = Field(default=15 * 1024 * 1024, gt=0)
     max_event_upload_archive_size_bytes: int = Field(default=250 * 1024 * 1024, gt=0)
+    maxEventUploadBatchBytes: int = Field(default=100 * 1024 * 1024, gt=0, validation_alias="MAX_EVENT_UPLOAD_BATCH_BYTES")
+    maxEventUploadInputBytes: int = Field(default=300 * 1024 * 1024, gt=0, validation_alias="MAX_EVENT_UPLOAD_INPUT_BYTES")
     max_event_upload_batch_files: int = Field(default=100, ge=1, le=2000)
     max_face_profile_selfie_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 

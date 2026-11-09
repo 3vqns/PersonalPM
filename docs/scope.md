@@ -6,6 +6,10 @@ Build a product that allows users to register their face to their account once, 
 
 Public sharing is split from registration. Personal Gallery Share exposes only the sharer's matched photos, Full Gallery Share exposes the event photo gallery, and Join Event is the only QR/link flow that changes event membership.
 
+Security invariants for this pass: an event ID never grants membership; a valid join token grants initial enrollment; a removed attendee needs creator restoration even with the old join token. Anonymous join-link gallery viewing is available only when the organizer enabled anonymous uploads. Manual attendee grants are creator-only. Enrollment selfies belong in private backend-controlled storage. Uploaded media IDs remain available for confirmed deletion and retry. Application limits apply before allocating Cloudinary storage or Rekognition matching work.
+
+Account deletion removes the user's avatar and enrollment assets. Event photos they uploaded remain, with their uploader reference and attribution anonymized. For every event an account owns, ownership transfers to its longest-serving active admin; that admin becomes the organizer. An account with an owned event that has no active admin cannot be deleted until an eligible admin is assigned.
+
 ## Core Moving Parts
 
 ### Photo Ingestion
