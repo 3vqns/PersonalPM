@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from io import BytesIO
 from types import SimpleNamespace
 import pytest
+from botocore.exceptions import ClientError
 
 from fastapi import UploadFile
 from starlette.datastructures import Headers
@@ -558,6 +559,149 @@ def test_event_creation_budget_rejects_before_aws(monkeypatch) -> None:
     with pytest.raises(AppError) as excInfo:
         asyncio.run(event_service.create_event(currentUser, name="Expo", date_value=date(2026, 4, 18), description=None))
     assert excInfo.value.code == "EVENT_LIMIT_REACHED"
+
+
+def test_reservation_connection_error_is_not_reported_as_full_budget(monkeypatch) -> None:
+    class FailingRequest:
+        def execute(self):
+            raise ConnectionError("database unavailable")
+
+    class FailingClient:
+        def rpc(self, _name: str, _payload: dict):
+            return FailingRequest()
+
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: FailingClient())
+    monkeypatch.setattr(event_service, "getSettings", lambda: SimpleNamespace(
+        maxEventCollectionsPerCreator=10, maxEventCollectionsTotal=500
+    ))
+
+    with pytest.raises(AppError) as excInfo:
+        event_service._reserve_rekognition_collection("collection-1", "user-1")
+    assert excInfo.value.code == "EVENT_RESERVATION_FAILED"
+    assert excInfo.value.status == 503
+
+
+def test_reservation_budget_error_is_reported_as_limit(monkeypatch) -> None:
+    class BudgetError(Exception):
+        message = "event collection budget is full"
+
+    class FailingRequest:
+        def execute(self):
+            raise BudgetError()
+
+    class FailingClient:
+        def rpc(self, _name: str, _payload: dict):
+            return FailingRequest()
+
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: FailingClient())
+    monkeypatch.setattr(event_service, "_reconcile_stale_collection_reservations", lambda: False)
+    monkeypatch.setattr(event_service, "getSettings", lambda: SimpleNamespace(
+        maxEventCollectionsPerCreator=10, maxEventCollectionsTotal=500
+    ))
+
+    with pytest.raises(AppError) as excInfo:
+        event_service._reserve_rekognition_collection("collection-1", "user-1")
+    assert excInfo.value.code == "EVENT_LIMIT_REACHED"
+
+
+def test_missing_aws_collection_is_confirmed_deleted(monkeypatch) -> None:
+    class MissingCollectionClient:
+        def delete_collection(self, **_kwargs):
+            raise ClientError({"Error": {"Code": "ResourceNotFoundException", "Message": "missing"}}, "DeleteCollection")
+
+    monkeypatch.setattr(event_service, "get_rekognition_client", lambda: MissingCollectionClient())
+    assert event_service._delete_rekognition_collection("collection-1", suppress_not_found=True) is True
+
+
+def test_failed_collection_creation_releases_confirmed_missing_reservation(monkeypatch) -> None:
+    currentUser = AuthenticatedUser(user_id="user-1", email="user@example.com", access_token="token", raw_user={"id": "user-1"})
+    releasedCollections: list[str] = []
+    monkeypatch.setattr(event_service, "get_public_user_record", lambda _user: SimpleNamespace(id="user-1"))
+    monkeypatch.setattr(event_service, "getSettings", lambda: SimpleNamespace(
+        rekognition_collection_prefix="pictureme-event", external_retry_attempts=1,
+        external_retry_backoff_seconds=0.0
+    ))
+    monkeypatch.setattr(event_service, "_reserve_rekognition_collection", lambda _collectionId, _creatorId: None)
+    monkeypatch.setattr(event_service, "run_with_retries", lambda **_kwargs: (_ for _ in ()).throw(
+        ClientError({"Error": {"Code": "AccessDeniedException", "Message": "denied"}}, "CreateCollection")
+    ))
+    monkeypatch.setattr(event_service, "_delete_rekognition_collection", lambda _collectionId, **_kwargs: True)
+    monkeypatch.setattr(event_service, "_release_rekognition_collection", releasedCollections.append)
+
+    with pytest.raises(AppError) as excInfo:
+        asyncio.run(event_service.create_event(currentUser, name="Expo", date_value=date(2026, 4, 18), description=None))
+    assert excInfo.value.code == "REKOGNITION_CREATE_FAILED"
+    assert len(releasedCollections) == 1
+
+
+def test_full_budget_reconciles_only_aws_confirmed_missing_collection(monkeypatch) -> None:
+    class BudgetError(Exception):
+        message = "event collection budget is full"
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.reserveAttempts = 0
+            self.releasedCollections: list[str] = []
+
+        def rpc(self, name: str, payload: dict | None = None):
+            if name == "reserve_event_collection":
+                self.reserveAttempts += 1
+                if self.reserveAttempts == 1:
+                    return SimpleNamespace(execute=lambda: (_ for _ in ()).throw(BudgetError()))
+                return SimpleNamespace(execute=lambda: SimpleNamespace(data=None))
+            if name == "list_stale_event_collection_reservations":
+                return SimpleNamespace(execute=lambda: SimpleNamespace(data=[{"collection_id": "old-1"}]))
+            assert name == "release_stale_event_collection_reservation"
+            self.releasedCollections.append(payload["collection_id_input"])
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=True))
+
+    class MissingCollectionClient:
+        def describe_collection(self, **_kwargs):
+            raise ClientError({"Error": {"Code": "ResourceNotFoundException", "Message": "missing"}}, "DescribeCollection")
+
+    client = FakeClient()
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: client)
+    monkeypatch.setattr(event_service, "get_rekognition_client", lambda: MissingCollectionClient())
+    monkeypatch.setattr(event_service, "getSettings", lambda: SimpleNamespace(
+        maxEventCollectionsPerCreator=10, maxEventCollectionsTotal=500
+    ))
+
+    event_service._reserve_rekognition_collection("new-1", "user-1")
+    assert client.reserveAttempts == 2
+    assert client.releasedCollections == ["old-1"]
+
+
+def test_stale_reservation_remains_if_aws_collection_exists(monkeypatch) -> None:
+    class FakeClient:
+        def rpc(self, name: str, _payload: dict | None = None):
+            assert name == "list_stale_event_collection_reservations"
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=[{"collection_id": "old-1"}]))
+
+    class ExistingCollectionClient:
+        def describe_collection(self, **_kwargs):
+            return {"CollectionId": "old-1"}
+
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: FakeClient())
+    monkeypatch.setattr(event_service, "get_rekognition_client", lambda: ExistingCollectionClient())
+    assert event_service._reconcile_stale_collection_reservations() is False
+
+
+def test_aws_inspection_failure_reports_provider_code(monkeypatch) -> None:
+    class FakeClient:
+        def rpc(self, name: str):
+            assert name == "list_stale_event_collection_reservations"
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=[{"collection_id": "old-1"}]))
+
+    class DeniedCollectionClient:
+        def describe_collection(self, **unusedKwargs):
+            raise ClientError({"Error": {"Code": "AccessDeniedException", "Message": "denied"}}, "DescribeCollection")
+
+    monkeypatch.setattr(event_service, "get_supabase_admin_client", lambda: FakeClient())
+    monkeypatch.setattr(event_service, "get_rekognition_client", lambda: DeniedCollectionClient())
+    with pytest.raises(AppError) as excInfo:
+        event_service._reconcile_stale_collection_reservations()
+    assert excInfo.value.code == "EVENT_COLLECTION_RECONCILE_FAILED"
+    assert excInfo.value.details == {"providerCode": "AccessDeniedException"}
 
 
 def test_create_event_uploads_cover_when_provided(monkeypatch) -> None:

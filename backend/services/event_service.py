@@ -8,6 +8,7 @@ from hashlib import sha256
 from datetime import date, datetime, timezone
 
 from fastapi import BackgroundTasks, UploadFile
+from botocore.exceptions import ClientError
 
 from backend.config import getSettings
 from backend.core.retry import run_with_retries
@@ -106,9 +107,15 @@ async def create_event(
             func=lambda: get_rekognition_client().create_collection(CollectionId=collection_id),
         )
     except Exception as exc:
+        logger.error("Rekognition collection creation failed (%s)", _external_error_code(exc))
         if _delete_rekognition_collection(collection_id, suppress_not_found=True):
             _release_rekognition_collection(collection_id)
-        raise AppError("PictureMe could not create the event collection", code="REKOGNITION_CREATE_FAILED", status=502) from exc
+        raise AppError(
+            "PictureMe could not create the event collection",
+            code="REKOGNITION_CREATE_FAILED",
+            status=502,
+            details={"providerCode": _external_error_code(exc)},
+        ) from exc
 
     client = get_supabase_admin_client()
     event_id: str | None = None
@@ -1200,16 +1207,82 @@ def _generate_join_token() -> str:
 
 
 def _reserve_rekognition_collection(collectionId: str, creatorId: str) -> None:
-    settings = getSettings()
     try:
-        get_supabase_admin_client().rpc("reserve_event_collection", {
-            "collection_id_input": collectionId,
-            "creator_id_input": creatorId,
-            "max_per_creator": settings.maxEventCollectionsPerCreator,
-            "max_total": settings.maxEventCollectionsTotal,
-        }).execute()
+        _insert_collection_reservation(collectionId, creatorId)
     except Exception as exc:
-        raise AppError("Event collection budget is full", code="EVENT_LIMIT_REACHED", status=429) from exc
+        if getattr(exc, "message", "") == "event collection budget is full":
+            if _reconcile_stale_collection_reservations():
+                try:
+                    _insert_collection_reservation(collectionId, creatorId)
+                    return
+                except Exception as retryExc:
+                    exc = retryExc
+            if getattr(exc, "message", "") != "event collection budget is full":
+                logger.error("Event collection reservation retry failed (%s)", _external_error_code(exc))
+                raise AppError("PictureMe could not reserve an event collection", code="EVENT_RESERVATION_FAILED", status=503) from exc
+            raise AppError("Event collection budget is full", code="EVENT_LIMIT_REACHED", status=429) from exc
+        logger.error("Event collection reservation failed (%s)", _external_error_code(exc))
+        raise AppError("PictureMe could not reserve an event collection", code="EVENT_RESERVATION_FAILED", status=503) from exc
+
+
+def _insert_collection_reservation(collectionId: str, creatorId: str) -> None:
+    settings = getSettings()
+    get_supabase_admin_client().rpc("reserve_event_collection", {
+        "collection_id_input": collectionId,
+        "creator_id_input": creatorId,
+        "max_per_creator": settings.maxEventCollectionsPerCreator,
+        "max_total": settings.maxEventCollectionsTotal,
+    }).execute()
+
+
+def _reconcile_stale_collection_reservations() -> bool:
+    """Release old unattached reservations only after AWS confirms absence."""
+    client = get_supabase_admin_client()
+    try:
+        response = client.rpc("list_stale_event_collection_reservations").execute()
+    except Exception as exc:
+        logger.warning("Could not list stale collection reservations (%s)", _external_error_code(exc))
+        raise AppError("PictureMe could not verify event collection capacity", code="EVENT_COLLECTION_RECONCILE_FAILED", status=503) from exc
+
+    released = False
+    inspectionErrorCode: str | None = None
+    releaseFailed = False
+    for row in response.data or []:
+        collectionId = str(row["collection_id"])
+        try:
+            get_rekognition_client().describe_collection(CollectionId=collectionId)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
+                inspectionErrorCode = _external_error_code(exc)
+                logger.warning("Could not inspect stale collection (%s)", inspectionErrorCode)
+                break
+            try:
+                releaseResponse = client.rpc("release_stale_event_collection_reservation", {
+                    "collection_id_input": collectionId
+                }).execute()
+                released = bool(releaseResponse.data) or released
+            except Exception as releaseExc:
+                logger.warning("Could not release stale collection reservation (%s)", _external_error_code(releaseExc))
+                releaseFailed = True
+        except Exception as exc:
+            inspectionErrorCode = _external_error_code(exc)
+            logger.warning("Could not inspect stale collection reservation (%s)", inspectionErrorCode)
+            break
+    if (inspectionErrorCode or releaseFailed) and not released:
+        raise AppError(
+            "PictureMe could not verify event collection capacity",
+            code="EVENT_COLLECTION_RECONCILE_FAILED",
+            status=503,
+            details={"providerCode": inspectionErrorCode} if inspectionErrorCode else None,
+        )
+    return released
+
+
+def _external_error_code(exc: Exception) -> str:
+    """Return a provider error code without logging request data or credentials."""
+    if isinstance(exc, ClientError):
+        return str(exc.response.get("Error", {}).get("Code") or "ClientError")
+    return type(exc).__name__
 
 
 def _release_rekognition_collection(collectionId: str) -> None:
@@ -1223,8 +1296,15 @@ def _delete_rekognition_collection(collection_id: str, *, suppress_not_found: bo
     try:
         get_rekognition_client().delete_collection(CollectionId=collection_id)
         return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+            return True
+        if suppress_not_found:
+            logger.warning("Failed to delete Rekognition collection %s (%s)", collection_id, _external_error_code(exc))
+            return False
+        raise AppError("PictureMe could not delete the event collection", code="REKOGNITION_DELETE_FAILED", status=502) from exc
     except Exception as exc:
         if suppress_not_found:
-            logger.warning("Failed to delete Rekognition collection %s", collection_id)
+            logger.warning("Failed to delete Rekognition collection %s (%s)", collection_id, _external_error_code(exc))
             return False
         raise AppError("PictureMe could not delete the event collection", code="REKOGNITION_DELETE_FAILED", status=502) from exc
